@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    env_file:
+      - ./app/.env
+    # Playwright/Chromium costuma precisar de /dev/shm maior para evitar travamentos
+    shm_size: "1gb"
+    environment:
+      # Garante logs sem buffer no Python (útil no docker compose)
+      PYTHONUNBUFFERED: "1"
+    restart: "no"
