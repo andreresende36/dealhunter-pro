@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Literal, Tuple
 import re
 import asyncio
 import pathlib
@@ -23,7 +23,6 @@ class ScrapedOffer:
     old_price_cents: Optional[int]
     discount_pct: Optional[float]
     source: str = "ml_offers_playwright"
-
 
 def _price_to_cents(text: str) -> Optional[int]:
     if not text:
@@ -76,13 +75,25 @@ def _calc_discount(old_cents: Optional[int], price_cents: int) -> Optional[float
     return ((old_cents - price_cents) / old_cents) * 100.0
 
 
-def _external_id_from_url(url: str) -> Optional[str]:
+def _external_id_from_url(url: str) -> Optional[Tuple[str, Literal["p", "up"]]]:
     """
-    Extrai o código MLB da URL do Mercado Livre.
-    Retorna no formato MLB4113792113 (sem hífen).
+    Extrai o código MLB/MLBU da URL do Mercado Livre.
+    Retorna tupla (external_id, url_type) ou None.
+
+    Tipo 1 (/p/): MLB16069584, "p"
+    Tipo 2 (/up/): MLBU3491177949, "up"
     """
-    match = re.search(r"MLB-?(\d+)", url, re.IGNORECASE)
-    return f"MLB{match.group(1)}" if match else None
+    # Tenta tipo 1: /p/MLB...
+    match_p = re.search(r"/p/(MLB\d+)", url, re.IGNORECASE)
+    if match_p:
+        return (match_p.group(1), "p")
+
+    # Tenta tipo 2: /up/MLBU...
+    match_up = re.search(r"/up/(MLBU\d+)", url, re.IGNORECASE)
+    if match_up:
+        return (match_up.group(1), "up")
+
+    return None
 
 
 def _normalize_ml_url(href: str) -> str:
@@ -295,9 +306,10 @@ async def scrape_ml_offers_playwright(
                 if not href or "mercadolivre.com.br" not in href:
                     continue
 
-                ext_id = _external_id_from_url(href)
-                if not ext_id or ext_id in seen_ids:
+                result = _external_id_from_url(href)
+                if not result or result[0] in seen_ids:
                     continue
+                ext_id, url_type = result
 
                 title = (row.get("title") or "").strip()
                 if len(title) < 5:
@@ -348,7 +360,7 @@ async def scrape_ml_offers_playwright(
                         marketplace="Mercado Livre",
                         external_id=ext_id,
                         title=title,
-                        url=href,
+                        url=f"https://www.mercadolivre.com.br/{url_type}/{ext_id}",
                         image_url=image_url,
                         price_cents=price_cents,
                         old_price_cents=old_price_cents,
