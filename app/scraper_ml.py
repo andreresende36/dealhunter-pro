@@ -130,23 +130,41 @@ def _calc_discount(old_cents: Optional[int], price_cents: int) -> Optional[float
     return ((old_cents - price_cents) / old_cents) * 100.0
 
 
-def _external_id_from_url(url: str) -> Optional[Tuple[str, Literal["p", "up"]]]:
+def _external_id_from_url(url: str) -> Optional[Tuple[str, Literal["p", "up", "produto"]]]:
     """
     Extrai o código MLB/MLBU da URL do Mercado Livre.
     Retorna tupla (external_id, url_type) ou None.
 
     Tipo 1 (/p/): MLB16069584, "p"
     Tipo 2 (/up/): MLBU3491177949, "up"
+    Tipo 3 (produto): MLB-5873070966, "produto"
     """
+    if not url:
+        return None
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        parsed = None
+
+    path = parsed.path if parsed else url
+
     # Tenta tipo 1: /p/MLB...
-    match_p = re.search(r"/p/(MLB\d+)", url, re.IGNORECASE)
+    match_p = re.search(r"/p/(MLB\d+)", path, re.IGNORECASE)
     if match_p:
         return (match_p.group(1), "p")
 
     # Tenta tipo 2: /up/MLBU...
-    match_up = re.search(r"/up/(MLBU\d+)", url, re.IGNORECASE)
+    match_up = re.search(r"/up/(MLBU\d+)", path, re.IGNORECASE)
     if match_up:
         return (match_up.group(1), "up")
+
+    # Tenta tipo 3: produto.mercadolivre.com.br/MLB-...
+    host = (parsed.netloc or "").lower() if parsed else ""
+    if host.startswith("produto.") and ML_DOMAIN in host:
+        match_produto = re.search(r"/(MLB-\d+)", path, re.IGNORECASE)
+        if match_produto:
+            return (match_produto.group(1), "produto")
 
     return None
 
@@ -373,12 +391,17 @@ def _build_offer_from_row(row: CardRow, seen_ids: set[str]) -> Optional[ScrapedO
     if discount_pct is None:
         discount_pct = _calc_discount(old_price_cents, price_cents)
 
+    if url_type == "produto":
+        canonical_url = f"https://produto.{ML_DOMAIN}/{ext_id}"
+    else:
+        canonical_url = f"{ML_BASE_URL}/{url_type}/{ext_id}"
+
     seen_ids.add(ext_id)
     return ScrapedOffer(
         marketplace="Mercado Livre",
         external_id=ext_id,
         title=title,
-        url=f"{ML_BASE_URL}/{url_type}/{ext_id}",
+        url=canonical_url,
         image_url=image_url,
         price_cents=price_cents,
         old_price_cents=old_price_cents,
