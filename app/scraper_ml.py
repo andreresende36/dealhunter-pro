@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 import re
 from dataclasses import dataclass
@@ -22,6 +23,20 @@ DEFAULT_ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9,en;q=0.8"
 DEBUG_DIR = pathlib.Path("debug")
 MAX_CARDS_PER_PAGE = 300
 SCROLL_PIXELS = 2400
+
+
+def _resolve_storage_state_path() -> Optional[str]:
+    env_path = os.getenv("PLAYWRIGHT_STORAGE_STATE", "").strip()
+    if env_path:
+        candidate = pathlib.Path(env_path).expanduser()
+        if candidate.exists():
+            return str(candidate)
+        return None
+
+    default_path = pathlib.Path(__file__).resolve().parent / "storage_state.json"
+    if default_path.exists():
+        return str(default_path)
+    return None
 
 
 @dataclass
@@ -407,11 +422,15 @@ async def scrape_ml_offers_playwright(
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            locale="pt-BR",
-            user_agent=DEFAULT_USER_AGENT,
-            extra_http_headers={"Accept-Language": DEFAULT_ACCEPT_LANGUAGE},
-        )
+        context_kwargs = {
+            "locale": "pt-BR",
+            "user_agent": DEFAULT_USER_AGENT,
+            "extra_http_headers": {"Accept-Language": DEFAULT_ACCEPT_LANGUAGE},
+        }
+        storage_state_path = _resolve_storage_state_path()
+        if storage_state_path:
+            context_kwargs["storage_state"] = storage_state_path
+        context = await browser.new_context(**context_kwargs)
 
         await context.route("**/*", _route_block_heavy)
 
