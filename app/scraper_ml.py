@@ -639,7 +639,6 @@ async def enrich_offers_affiliate_details(
 
     concurrency = max(1, max_concurrency)
     delay_s = max(0.0, request_delay_s)
-    sem = asyncio.Semaphore(concurrency)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -654,29 +653,42 @@ async def enrich_offers_affiliate_details(
         context = await browser.new_context(**context_kwargs)
         await context.route("**/*", _route_block_heavy)
 
-        async def _worker(offer: ScrapedOffer) -> None:
-            async with sem:
-                page = await context.new_page()
-                try:
-                    commission_pct, affiliate_link, affiliation_id = await _extract_affiliate_details(
-                        page,
-                        offer.url,
-                        commission_selector=commission_selector,
-                        commission_selector_alternative=commission_selector_alternative,
-                        button_selector=button_selector,
-                        affiliate_share_text=affiliate_share_text,
-                        affiliate_link_selector=affiliate_link_selector,
-                        affiliation_id_selector=affiliation_id_selector,
-                    )
-                    offer.commission_pct = commission_pct
-                    offer.affiliate_link = affiliate_link
-                    offer.affiliation_id = affiliation_id
-                finally:
-                    await page.close()
-                if delay_s > 0:
-                    await asyncio.sleep(delay_s)
+        queue: asyncio.Queue[ScrapedOffer] = asyncio.Queue()
+        for offer in offers:
+            queue.put_nowait(offer)
 
-        await asyncio.gather(*(_worker(offer) for offer in offers))
+        async def _worker() -> None:
+            page = await context.new_page()
+            try:
+                while True:
+                    try:
+                        offer = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+
+                    try:
+                        commission_pct, affiliate_link, affiliation_id = await _extract_affiliate_details(
+                            page,
+                            offer.url,
+                            commission_selector=commission_selector,
+                            commission_selector_alternative=commission_selector_alternative,
+                            button_selector=button_selector,
+                            affiliate_share_text=affiliate_share_text,
+                            affiliate_link_selector=affiliate_link_selector,
+                            affiliation_id_selector=affiliation_id_selector,
+                        )
+                        offer.commission_pct = commission_pct
+                        offer.affiliate_link = affiliate_link
+                        offer.affiliation_id = affiliation_id
+                    finally:
+                        queue.task_done()
+
+                    if delay_s > 0:
+                        await asyncio.sleep(delay_s)
+            finally:
+                await page.close()
+
+        await asyncio.gather(*(_worker() for _ in range(concurrency)))
 
         await context.close()
         await browser.close()
