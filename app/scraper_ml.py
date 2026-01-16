@@ -416,6 +416,15 @@ async def _extract_affiliate_details(
         except Exception:
             commission_pct = None
 
+    if commission_pct is None:
+        try:
+            info_selector = "div.stripe-commission__info span"
+            await page.wait_for_selector(info_selector, timeout=8000)
+            info_text = await page.locator(info_selector).first.inner_text()
+            commission_pct = _parse_commission_pct(info_text)
+        except Exception:
+            commission_pct = None
+
     if button_selector and affiliate_share_text:
         try:
             share_button = page.locator(button_selector, has_text=affiliate_share_text)
