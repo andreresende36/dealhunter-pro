@@ -408,6 +408,8 @@ async def _extract_affiliate_details(
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
     except Exception:
         return (None, None, None)
+    
+    # print(f"[ml] affiliate url =", url, flush=True)
 
     commission_pct = None
     if commission_selector:
@@ -415,6 +417,7 @@ async def _extract_affiliate_details(
             await page.wait_for_selector(commission_selector, timeout=15000)
             commission_text = await page.locator(commission_selector).first.inner_text()
             commission_pct = _parse_commission_pct(commission_text)
+            # print(f"[ml] commission =", commission_pct, flush=True)
         except Exception:
             commission_pct = None
 
@@ -423,6 +426,7 @@ async def _extract_affiliate_details(
             await page.wait_for_selector(commission_selector_alternative, timeout=8000)
             info_text = await page.locator(commission_selector_alternative).first.inner_text()
             commission_pct = _parse_commission_pct(info_text)
+            # print(f"[ml] commission =", commission_pct, flush=True)
         except Exception:
             commission_pct = None
 
