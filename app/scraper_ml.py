@@ -479,8 +479,14 @@ async def scrape_ml_offers_playwright(
             )
 
             if debug:
-                (debug_dir / f"items.json").write_text(
-                    json.dumps(items, indent=2, default=str),
+                all_items_path = debug_dir / "items.json"
+                if all_items_path.exists():
+                    existing_items = json.loads(all_items_path.read_text(encoding="utf-8"))
+                else:
+                    existing_items = []
+                existing_items.extend(items)
+                all_items_path.write_text(
+                    json.dumps(existing_items, indent=2, default=str),
                     encoding="utf-8",
                 )
 
