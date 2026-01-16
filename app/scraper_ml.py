@@ -398,6 +398,7 @@ async def _extract_affiliate_details(
     page,
     url: str,
     commission_selector: str,
+    commission_selector_alternative: str,
     button_selector: str,
     affiliate_share_text: str,
     affiliate_link_selector: str,
@@ -414,6 +415,14 @@ async def _extract_affiliate_details(
             await page.wait_for_selector(commission_selector, timeout=15000)
             commission_text = await page.locator(commission_selector).first.inner_text()
             commission_pct = _parse_commission_pct(commission_text)
+        except Exception:
+            commission_pct = None
+
+    if commission_pct is None and commission_selector_alternative:
+        try:
+            await page.wait_for_selector(commission_selector_alternative, timeout=8000)
+            info_text = await page.locator(commission_selector_alternative).first.inner_text()
+            commission_pct = _parse_commission_pct(info_text)
         except Exception:
             commission_pct = None
 
@@ -525,6 +534,7 @@ async def scrape_ml_offers_playwright(
     old_cents_selector: str,
     discount_selector: str,
     commission_selector: str,
+    commission_selector_alternative: str,
     button_selector: str,
     affiliate_share_text: str,
     affiliate_link_selector: str,
@@ -614,6 +624,7 @@ async def scrape_ml_offers_playwright(
                 page,
                 offer.url,
                 commission_selector=commission_selector,
+                commission_selector_alternative=commission_selector_alternative,
                 button_selector=button_selector,
                 affiliate_share_text=affiliate_share_text,
                 affiliate_link_selector=affiliate_link_selector,

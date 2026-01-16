@@ -85,6 +85,10 @@ async def run_once() -> dict[str, Any]:
     old_cents_selector= _env_string("OLD_CENTS_SELECTOR", "s.andes-money-amount.andes-money-amount--previous span.andes-money-amount__cents")
     discount_selector= _env_string("DISCOUNT_SELECTOR", "span.andes-money-amount__discount.poly-price__disc--pill")
     commission_selector = _env_string("COMMISSION_SELECTOR", "span.stripe-commission__percentage")
+    commission_selector_alternative = _env_string(
+        "COMMISSION_SELECTOR_ALTERNATIVE",
+        "div.stripe-commission__info span",
+    )
     button_selector = _env_string("BUTTON_SELECTOR", "span.andes-button__text")
     affiliate_share_text = _env_string("AFFILIATE_SHARE_TEXT", "Compartilhar")
     affiliate_link_selector = _env_string(
@@ -124,6 +128,7 @@ async def run_once() -> dict[str, Any]:
             old_cents_selector=old_cents_selector,
             discount_selector=discount_selector,
             commission_selector=commission_selector,
+            commission_selector_alternative=commission_selector_alternative,
             button_selector=button_selector,
             affiliate_share_text=affiliate_share_text,
             affiliate_link_selector=affiliate_link_selector,
