@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict
 from typing import Any
 
-from scraper_ml import scrape_ml_offers_playwright, ScrapedOffer
+from scraper_ml import enrich_offers_affiliate_details, scrape_ml_offers_playwright, ScrapedOffer
 
 def _env_string(name: str, default: str) -> str:
     v = os.getenv(name, "").strip()
@@ -99,6 +99,7 @@ async def run_once() -> dict[str, Any]:
         "AFFILIATION_ID_SELECTOR",
         '[data-testid="text-field__label_id"]',
     )
+    affiliate_concurrency = _env_int("AFFILIATE_CONCURRENCY", 3)
     
 
     max_items_print = _env_int("MAX_ITEMS_PRINT", 20)
@@ -127,12 +128,6 @@ async def run_once() -> dict[str, Any]:
             old_fraction_selector=old_fraction_selector,
             old_cents_selector=old_cents_selector,
             discount_selector=discount_selector,
-            commission_selector=commission_selector,
-            commission_selector_alternative=commission_selector_alternative,
-            button_selector=button_selector,
-            affiliate_share_text=affiliate_share_text,
-            affiliate_link_selector=affiliate_link_selector,
-            affiliation_id_selector=affiliation_id_selector,
             debug=debug_dump
         )
     except Exception as e:
@@ -157,6 +152,17 @@ async def run_once() -> dict[str, Any]:
     _log(f"[runner] Após filtro: {len(filtered)} itens (>= {min_discount:.2f}% desconto)")
 
     show = filtered[:max_items_print]
+    if show and affiliate_concurrency > 0:
+        await enrich_offers_affiliate_details(
+            show,
+            commission_selector=commission_selector,
+            commission_selector_alternative=commission_selector_alternative,
+            button_selector=button_selector,
+            affiliate_share_text=affiliate_share_text,
+            affiliate_link_selector=affiliate_link_selector,
+            affiliation_id_selector=affiliation_id_selector,
+            max_concurrency=affiliate_concurrency,
+        )
     _log("-" * 90)
     for idx, o in enumerate(show, start=1):
         _log(
