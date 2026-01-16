@@ -532,12 +532,6 @@ async def scrape_ml_offers_playwright(
     old_fraction_selector: str,
     old_cents_selector: str,
     discount_selector: str,
-    commission_selector: str,
-    commission_selector_alternative: str,
-    button_selector: str,
-    affiliate_share_text: str,
-    affiliate_link_selector: str,
-    affiliation_id_selector: str,
     number_of_pages: int = 1,
     max_scrolls: int = 4,
     scroll_delay_s: float = 1.2,
@@ -606,27 +600,69 @@ async def scrape_ml_offers_playwright(
             # respiro entre páginas (evita estresse/anti-bot)
             await page.wait_for_timeout(int(page_delay_s * 1000))
 
-        for idx, offer in enumerate(offers, start=1):
-            commission_pct, affiliate_link, affiliation_id = await _extract_affiliate_details(
-                page,
-                offer.url,
-                commission_selector=commission_selector,
-                commission_selector_alternative=commission_selector_alternative,
-                button_selector=button_selector,
-                affiliate_share_text=affiliate_share_text,
-                affiliate_link_selector=affiliate_link_selector,
-                affiliation_id_selector=affiliation_id_selector,
-            )
-            offer.commission_pct = commission_pct
-            offer.affiliate_link = affiliate_link
-            offer.affiliation_id = affiliation_id
-            if page_delay_s > 0:
-                await page.wait_for_timeout(int(page_delay_s * 1000))
-
         await context.close()
         await browser.close()
 
     return offers
+
+
+async def enrich_offers_affiliate_details(
+    offers: list[ScrapedOffer],
+    commission_selector: str,
+    commission_selector_alternative: str,
+    button_selector: str,
+    affiliate_share_text: str,
+    affiliate_link_selector: str,
+    affiliation_id_selector: str,
+    max_concurrency: int = 3,
+    request_delay_s: float = 0.0,
+) -> None:
+    if not offers:
+        return
+
+    concurrency = max(1, max_concurrency)
+    delay_s = max(0.0, request_delay_s)
+    sem = asyncio.Semaphore(concurrency)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context_kwargs = {
+            "locale": "pt-BR",
+            "user_agent": DEFAULT_USER_AGENT,
+            "extra_http_headers": {"Accept-Language": DEFAULT_ACCEPT_LANGUAGE},
+        }
+        storage_state_path = _resolve_storage_state_path()
+        if storage_state_path:
+            context_kwargs["storage_state"] = storage_state_path
+        context = await browser.new_context(**context_kwargs)
+        await context.route("**/*", _route_block_heavy)
+
+        async def _worker(offer: ScrapedOffer) -> None:
+            async with sem:
+                page = await context.new_page()
+                try:
+                    commission_pct, affiliate_link, affiliation_id = await _extract_affiliate_details(
+                        page,
+                        offer.url,
+                        commission_selector=commission_selector,
+                        commission_selector_alternative=commission_selector_alternative,
+                        button_selector=button_selector,
+                        affiliate_share_text=affiliate_share_text,
+                        affiliate_link_selector=affiliate_link_selector,
+                        affiliation_id_selector=affiliation_id_selector,
+                    )
+                    offer.commission_pct = commission_pct
+                    offer.affiliate_link = affiliate_link
+                    offer.affiliation_id = affiliation_id
+                finally:
+                    await page.close()
+                if delay_s > 0:
+                    await asyncio.sleep(delay_s)
+
+        await asyncio.gather(*(_worker(offer) for offer in offers))
+
+        await context.close()
+        await browser.close()
 
 
 if __name__ == "__main__":
