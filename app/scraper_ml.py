@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional, Tuple, TypedDict
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright # type: ignore
 
 _PRICE_RE = re.compile(r"(\d{1,3}(?:\.\d{3})*(?:,\d{2})|\d+(?:,\d{2})?)")
 ML_DOMAIN = "mercadolivre.com.br"

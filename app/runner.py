@@ -105,6 +105,7 @@ async def run_once() -> dict[str, Any]:
             old_fraction_selector=old_fraction_selector,
             old_cents_selector=old_cents_selector,
             discount_selector=discount_selector,
+            debug=debug_dump
         )
     except Exception as e:
         _log(f"[runner] ERRO: coleta falhou: {type(e).__name__}: {e}")
