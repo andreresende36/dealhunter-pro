@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional, Tuple, TypedDict
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
+import json
 
 from playwright.async_api import async_playwright # type: ignore
 
@@ -453,6 +454,12 @@ async def scrape_ml_offers_playwright(
                 debug_dir=debug_dir,
                 page_num=page_num,
             )
+
+            if debug:
+                (debug_dir / f"items.json").write_text(
+                    json.dumps(items, indent=2, default=str),
+                    encoding="utf-8",
+                )
 
             print(f"[ml] page={page_num} cards =", len(items), flush=True)
 

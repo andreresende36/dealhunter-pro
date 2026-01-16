@@ -209,3 +209,5 @@ __marimo__/
 cookies.json
 storage_state.json
 items.json
+ml_ofertas_p*.png
+ml_ofertas_rendered_p*.html
