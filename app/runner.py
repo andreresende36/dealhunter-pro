@@ -49,6 +49,13 @@ def _format_brl(cents: int | None) -> str:
     return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _format_pct(value: float | None) -> str:
+    if value is None:
+        return "-"
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{text}%"
+
+
 def _log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -77,6 +84,17 @@ async def run_once() -> dict[str, Any]:
     old_fraction_selector= _env_string("OLD_FRACTION_SELECTOR", "s.andes-money-amount.andes-money-amount--previous span.andes-money-amount__fraction")
     old_cents_selector= _env_string("OLD_CENTS_SELECTOR", "s.andes-money-amount.andes-money-amount--previous span.andes-money-amount__cents")
     discount_selector= _env_string("DISCOUNT_SELECTOR", "span.andes-money-amount__discount.poly-price__disc--pill")
+    commission_selector = _env_string("COMMISSION_SELECTOR", "span.stripe-commission__percentage")
+    button_selector = _env_string("BUTTON_SELECTOR", "span.andes-button__text")
+    affiliate_share_text = _env_string("AFFILIATE_SHARE_TEXT", "Compartilhar")
+    affiliate_link_selector = _env_string(
+        "AFFILIATE_LINK_SELECTOR",
+        '[data-testid="text-field__label_link"]',
+    )
+    affiliation_id_selector = _env_string(
+        "AFFILIATION_ID_SELECTOR",
+        '[data-testid="text-field__label_id"]',
+    )
     
 
     max_items_print = _env_int("MAX_ITEMS_PRINT", 20)
@@ -105,6 +123,11 @@ async def run_once() -> dict[str, Any]:
             old_fraction_selector=old_fraction_selector,
             old_cents_selector=old_cents_selector,
             discount_selector=discount_selector,
+            commission_selector=commission_selector,
+            button_selector=button_selector,
+            affiliate_share_text=affiliate_share_text,
+            affiliate_link_selector=affiliate_link_selector,
+            affiliation_id_selector=affiliation_id_selector,
             debug=debug_dump
         )
     except Exception as e:
@@ -136,7 +159,10 @@ async def run_once() -> dict[str, Any]:
             f"\n     De: {_format_brl(o.old_price_cents)}"
             f" | Agora: {_format_brl(o.price_cents)}"
             f" | Desc: {('-' if o.discount_pct is None else f'{o.discount_pct:.0f}%')}"
+            f" | Comissão: {_format_pct(o.commission_pct)}"
             f"\n     URL: {o.url}"
+            f"\n     Link afiliado: {o.affiliate_link or '-'}"
+            f"\n     Código afiliação: {o.affiliation_id or '-'}"
             f"\n     MLB ID: {o.external_id}"
             f"\n     Image URL: {o.image_url}"
             f"\n     Marketplace: {o.marketplace}"

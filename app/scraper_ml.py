@@ -49,6 +49,9 @@ class ScrapedOffer:
     price_cents: int
     old_price_cents: Optional[int]
     discount_pct: Optional[float]
+    commission_pct: Optional[float]
+    affiliate_link: Optional[str]
+    affiliation_id: Optional[str]
     source: str = "ml_offers_playwright"
 
 
@@ -120,6 +123,43 @@ def _discount_to_float(text: str) -> Optional[float]:
         return float(m.group(1))
     except ValueError:
         return None
+
+
+def _parse_commission_pct(text: str) -> Optional[float]:
+    if not text:
+        return None
+    m = re.search(r"(\d+(?:[.,]\d+)?)", text)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+
+
+async def _read_input_value(locator) -> Optional[str]:
+    try:
+        value = await locator.input_value()
+        if value:
+            return value.strip()
+    except Exception:
+        pass
+
+    try:
+        text = await locator.text_content()
+        if text:
+            return text.strip()
+    except Exception:
+        pass
+
+    try:
+        value = await locator.get_attribute("value")
+        if value:
+            return value.strip()
+    except Exception:
+        pass
+
+    return None
 
 
 def _calc_discount(old_cents: Optional[int], price_cents: int) -> Optional[float]:
@@ -353,6 +393,66 @@ async def _collect_page_items(
     )
 
 
+async def _extract_affiliate_details(
+    page,
+    url: str,
+    commission_selector: str,
+    button_selector: str,
+    affiliate_share_text: str,
+    affiliate_link_selector: str,
+    affiliation_id_selector: str,
+) -> tuple[Optional[float], Optional[str], Optional[str]]:
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    except Exception:
+        return (None, None, None)
+
+    commission_pct = None
+    if commission_selector:
+        try:
+            await page.wait_for_selector(commission_selector, timeout=15000)
+            commission_text = await page.locator(commission_selector).first.inner_text()
+            commission_pct = _parse_commission_pct(commission_text)
+        except Exception:
+            commission_pct = None
+
+    if button_selector and affiliate_share_text:
+        try:
+            share_button = page.locator(button_selector, has_text=affiliate_share_text)
+            if await share_button.count():
+                await share_button.first.click(timeout=5000)
+        except Exception:
+            pass
+
+    affiliate_link = None
+    if affiliate_link_selector:
+        try:
+            await page.wait_for_selector(affiliate_link_selector, timeout=10000)
+        except Exception:
+            pass
+        try:
+            link_locator = page.locator(affiliate_link_selector)
+            if await link_locator.count():
+                affiliate_link = await _read_input_value(link_locator.first)
+        except Exception:
+            affiliate_link = None
+
+    affiliation_id = None
+    if affiliation_id_selector:
+        try:
+            await page.wait_for_selector(affiliation_id_selector, timeout=10000)
+        except Exception:
+            pass
+        try:
+            id_locator = page.locator(affiliation_id_selector)
+            if await id_locator.count():
+                affiliation_id = await _read_input_value(id_locator.first)
+        except Exception:
+            affiliation_id = None
+
+    return (commission_pct, affiliate_link, affiliation_id)
+
+
 def _build_offer_from_row(row: CardRow, seen_ids: set[str]) -> Optional[ScrapedOffer]:
     href = _normalize_ml_url(_row_text(row, "href"))
     if not href or ML_DOMAIN not in href:
@@ -406,6 +506,9 @@ def _build_offer_from_row(row: CardRow, seen_ids: set[str]) -> Optional[ScrapedO
         price_cents=price_cents,
         old_price_cents=old_price_cents,
         discount_pct=round(discount_pct, 2) if discount_pct is not None else None,
+        commission_pct=None,
+        affiliate_link=None,
+        affiliation_id=None,
         source="ml_offers_playwright",
     )
 
@@ -420,6 +523,11 @@ async def scrape_ml_offers_playwright(
     old_fraction_selector: str,
     old_cents_selector: str,
     discount_selector: str,
+    commission_selector: str,
+    button_selector: str,
+    affiliate_share_text: str,
+    affiliate_link_selector: str,
+    affiliation_id_selector: str,
     number_of_pages: int = 1,
     max_scrolls: int = 4,
     scroll_delay_s: float = 1.2,
@@ -487,6 +595,22 @@ async def scrape_ml_offers_playwright(
 
             # respiro entre páginas (evita estresse/anti-bot)
             await page.wait_for_timeout(int(page_delay_s * 1000))
+
+        for idx, offer in enumerate(offers, start=1):
+            commission_pct, affiliate_link, affiliation_id = await _extract_affiliate_details(
+                page,
+                offer.url,
+                commission_selector=commission_selector,
+                button_selector=button_selector,
+                affiliate_share_text=affiliate_share_text,
+                affiliate_link_selector=affiliate_link_selector,
+                affiliation_id_selector=affiliation_id_selector,
+            )
+            offer.commission_pct = commission_pct
+            offer.affiliate_link = affiliate_link
+            offer.affiliation_id = affiliation_id
+            if page_delay_s > 0:
+                await page.wait_for_timeout(int(page_delay_s * 1000))
 
         await context.close()
         await browser.close()
