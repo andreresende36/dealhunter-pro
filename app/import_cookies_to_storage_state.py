@@ -1,8 +1,10 @@
-# import_cookies_to_storage_state.py
-import json
+"""Script para importar cookies para storage state do Playwright."""
+
 import asyncio
-from playwright.async_api import async_playwright # type: ignore
- 
+import json
+
+from playwright.async_api import async_playwright  # type: ignore
+
 SAMESITE = {
     "no_restriction": "None",
     "none": "None",
@@ -11,8 +13,10 @@ SAMESITE = {
     "unspecified": "Lax",
     "": "Lax",
 }
- 
+
+
 def normalize(c):
+    """Normaliza um cookie para o formato do Playwright."""
     same = SAMESITE.get(str(c.get("sameSite", "")).lower(), "Lax")
     return {
         "name": c["name"],
@@ -24,17 +28,23 @@ def normalize(c):
         "secure": bool(c.get("secure", False)),
         "sameSite": same,
     }
- 
+
+
 async def main():
+    """Função principal para importar cookies."""
     with open("cookies.json", "r", encoding="utf-8") as f:
         raw = json.load(f)
- 
-    cookies = [normalize(c) for c in raw if "mercadolivre.com.br" in (c.get("domain") or "")]
+
+    cookies = [
+        normalize(c) for c in raw if "mercadolivre.com.br" in (c.get("domain") or "")
+    ]
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
-        await context.add_cookies(cookies)
+        await context.add_cookies(cookies)  # type: ignore
         await context.storage_state(path="storage_state.json")
         await browser.close()
- 
-asyncio.run(main())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

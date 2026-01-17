@@ -8,13 +8,19 @@ from typing import Any
 
 from config import get_config
 from models import ScrapedOffer
-from scrapers import enrich_offers_affiliate_details, scrape_ml_offers_playwright
+from scrapers import (
+    enrich_offers_affiliate_details,
+    scrape_ml_offers_playwright,
+)
 from utils.format import format_brl, format_pct
 from utils.logging import log
 
 
 def _offer_sort_key(o: ScrapedOffer) -> tuple:
-    """Chave de ordenação para ofertas (desconto decrescente, depois preço crescente)."""
+    """
+    Chave de ordenação para ofertas.
+    Ordena por desconto decrescente, depois preço crescente.
+    """
     disc = o.discount_pct if o.discount_pct is not None else -1.0
     return (-disc, o.price_cents)
 
@@ -28,7 +34,8 @@ async def run_once() -> dict[str, Any]:
 
     t0 = time.perf_counter()
     log(
-        f"[runner] Iniciando coleta Mercado Livre ({config.ml.url}) com Playwright..."
+        f"[runner] Iniciando coleta Mercado Livre "
+        f"({config.ml.url}) com Playwright..."
     )
     log(
         f"[runner] MIN_DISCOUNT_PCT={config.scrape.min_discount_pct} | "
@@ -63,7 +70,8 @@ async def run_once() -> dict[str, Any]:
     filtered.sort(key=_offer_sort_key)
 
     log(
-        f"[runner] Após filtro: {len(filtered)} itens (>= {config.scrape.min_discount_pct:.2f}% desconto)"
+        f"[runner] Após filtro: {len(filtered)} itens "
+        f"(>= {config.scrape.min_discount_pct:.2f}% desconto)"
     )
 
     show = filtered[: config.max_items_print]
@@ -78,7 +86,7 @@ async def run_once() -> dict[str, Any]:
             f"[{idx:02d}] {o.title}"
             f"\n     De: {format_brl(o.old_price_cents)}"
             f" | Agora: {format_brl(o.price_cents)}"
-            f" | Desc: {('-' if o.discount_pct is None else f'{o.discount_pct:.0f}%')}"
+            f" | Desc: {('-' if o.discount_pct is None else f'{o.discount_pct:.0f}%')}"  # noqa: E501
             f" | Comissão: {format_pct(o.commission_pct)}"
             f"\n     URL: {o.url}"
             f"\n     Link afiliado: {o.affiliate_link or '-'}"
@@ -95,7 +103,8 @@ async def run_once() -> dict[str, Any]:
         log("  - reduza MIN_DISCOUNT_PCT (ex.: 30)")
         log("  - aumente ML_MAX_SCROLLS (ex.: 6)")
         log(
-            "  - defina ONLY_WITH_OLD_PRICE=false para permitir itens sem preço antigo"
+            "  - defina ONLY_WITH_OLD_PRICE=false para "
+            "permitir itens sem preço antigo"
         )
 
     t2 = time.perf_counter()

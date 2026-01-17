@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
@@ -33,7 +32,9 @@ class MLConfig:
                 "CARD_SELECTOR",
                 ".andes-card.poly-card.poly-card--grid-card.poly-card--xlarge.andes-card--flat.andes-card--padding-0.andes-card--animated",
             ),
-            title_selector=env_string("TITLE_SELECTOR", ".poly-component__title-wrapper"),
+            title_selector=env_string(
+                "TITLE_SELECTOR", ".poly-component__title-wrapper"
+            ),
             picture_selector=env_string("PICTURE_SELECTOR", ".poly-component__picture"),
             price_fraction_selector=env_string(
                 "PRICE_FRACTION_SELECTOR",
@@ -100,7 +101,9 @@ class AffiliateConfig:
     def from_env(cls) -> AffiliateConfig:
         """Cria configuração a partir de variáveis de ambiente."""
         return cls(
-            commission_selector=env_string("COMMISSION_SELECTOR", "span.stripe-commission__percentage"),
+            commission_selector=env_string(
+                "COMMISSION_SELECTOR", "span.stripe-commission__percentage"
+            ),
             commission_selector_alternative=env_string(
                 "COMMISSION_SELECTOR_ALTERNATIVE",
                 "div.stripe-commission__info span",
@@ -143,4 +146,3 @@ def get_config() -> Config:
     """Carrega e retorna a configuração do projeto."""
     load_dotenv()
     return Config.from_env()
-

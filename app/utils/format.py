@@ -18,4 +18,3 @@ def format_pct(value: float | None) -> str:
         return "-"
     text = f"{value:.2f}".rstrip("0").rstrip(".")
     return f"{text}%"
-

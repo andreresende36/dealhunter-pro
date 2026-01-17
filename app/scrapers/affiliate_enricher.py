@@ -11,7 +11,12 @@ from playwright.async_api import async_playwright  # type: ignore
 
 from config import AffiliateConfig
 from models import ScrapedOffer
-from scrapers.constants import DEFAULT_ACCEPT_LANGUAGE, DEFAULT_USER_AGENT, RESOURCE_BLOCK_TYPES, TRACKER_HOST_SNIPPETS
+from scrapers.constants import (
+    DEFAULT_ACCEPT_LANGUAGE,
+    DEFAULT_USER_AGENT,
+    RESOURCE_BLOCK_TYPES,
+    TRACKER_HOST_SNIPPETS,
+)
 from utils.price import parse_commission_pct
 
 
@@ -24,7 +29,8 @@ def _resolve_storage_state_path() -> Optional[str]:
             return str(candidate)
         return None
 
-    default_path = pathlib.Path(__file__).resolve().parent.parent / "storage_state.json"
+    parent_dir = pathlib.Path(__file__).resolve().parent.parent
+    default_path = parent_dir / "storage_state.json"
     if default_path.exists():
         return str(default_path)
     return None
@@ -85,22 +91,30 @@ async def _extract_affiliate_details(
     if config.commission_selector:
         try:
             await page.wait_for_selector(config.commission_selector, timeout=15000)
-            commission_text = await page.locator(config.commission_selector).first.inner_text()
+            commission_text = await page.locator(
+                config.commission_selector
+            ).first.inner_text()
             commission_pct = parse_commission_pct(commission_text)
         except Exception:
             commission_pct = None
 
     if commission_pct is None and config.commission_selector_alternative:
         try:
-            await page.wait_for_selector(config.commission_selector_alternative, timeout=8000)
-            info_text = await page.locator(config.commission_selector_alternative).first.inner_text()
+            await page.wait_for_selector(
+                config.commission_selector_alternative, timeout=8000
+            )
+            info_text = await page.locator(
+                config.commission_selector_alternative
+            ).first.inner_text()
             commission_pct = parse_commission_pct(info_text)
         except Exception:
             commission_pct = None
 
     if config.button_selector and config.affiliate_share_text:
         try:
-            share_button = page.locator(config.button_selector, has_text=config.affiliate_share_text)
+            share_button = page.locator(
+                config.button_selector, has_text=config.affiliate_share_text
+            )
             if await share_button.count():
                 await share_button.first.click(timeout=5000)
         except Exception:
@@ -174,7 +188,11 @@ async def enrich_offers_affiliate_details(
                         break
 
                     try:
-                        commission_pct, affiliate_link, affiliation_id = await _extract_affiliate_details(
+                        (
+                            commission_pct,
+                            affiliate_link,
+                            affiliation_id,
+                        ) = await _extract_affiliate_details(
                             page,
                             offer.url,
                             config,
@@ -194,4 +212,3 @@ async def enrich_offers_affiliate_details(
 
         await context.close()
         await browser.close()
-

@@ -114,4 +114,3 @@ def infer_old_price_from_card_text(card_text: str, price_cents: int) -> int | No
     if bigger_than_current:
         return max(bigger_than_current)
     return max(all_prices)
-

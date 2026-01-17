@@ -21,14 +21,19 @@ from scrapers.constants import (
     TRACKER_HOST_SNIPPETS,
 )
 from utils.price import (
-    all_prices_to_cents,
     calc_discount,
     discount_to_float,
     infer_old_price_from_card_text,
     money_parts_to_cents,
     price_to_cents,
 )
-from utils.url import ML_BASE_URL, ML_DOMAIN, external_id_from_url, normalize_ml_url, url_with_page
+from utils.url import (
+    ML_BASE_URL,
+    ML_DOMAIN,
+    external_id_from_url,
+    normalize_ml_url,
+    url_with_page,
+)
 
 
 DEBUG_DIR = pathlib.Path("debug")
@@ -71,34 +76,41 @@ def _resolve_storage_state_path() -> Optional[str]:
             return str(candidate)
         return None
 
-    default_path = pathlib.Path(__file__).resolve().parent.parent / "storage_state.json"
+    parent_dir = pathlib.Path(__file__).resolve().parent.parent
+    default_path = parent_dir / "storage_state.json"
     if default_path.exists():
         return str(default_path)
     return None
 
 
 async def _try_accept_cookies(page) -> None:
-    """Tenta aceitar cookies na página."""
+    """Tenta aceitar cookies na página com timeout curto."""
     for label in ("Aceitar cookies", "Aceptar cookies", "Accept cookies"):
         try:
             btn = page.get_by_role("button", name=label)
-            if await btn.count():
-                await btn.first.click(timeout=1500)
-                await page.wait_for_timeout(300)
+            if await btn.count(timeout=500):
+                await btn.first.click(timeout=1000)
+                # Não espera fixo - deixa o DOM atualizar naturalmente
                 return
         except Exception:
             pass
 
 
 async def _route_block_heavy(route, request) -> None:
-    """Bloqueia recursos pesados e trackers."""
+    """Bloqueia recursos pesados e trackers para acelerar carregamento."""
     rt = request.resource_type
     url = request.url.lower()
 
+    # Bloqueia imagens, fontes e mídia
     if rt in RESOURCE_BLOCK_TYPES:
         return await route.abort()
 
+    # Bloqueia trackers e analytics
     if any(token in url for token in TRACKER_HOST_SNIPPETS):
+        return await route.abort()
+
+    # Bloqueia CSS também (não necessário para scraping)
+    if rt == "stylesheet":
         return await route.abort()
 
     return await route.continue_()
@@ -112,13 +124,30 @@ async def _scroll_until_no_growth(
 ) -> None:
     """Rola a página até não haver mais crescimento no número de cards."""
     prev = 0
+    no_growth_count = 0
+
     for _ in range(max_scrolls):
         await page.mouse.wheel(0, SCROLL_PIXELS)
-        await page.wait_for_timeout(int(scroll_delay_s * 1000))
+
+        # Espera mínimo reduzido e usa wait_for_load_state quando possível
+        min_delay = max(100, int(scroll_delay_s * 1000 * 0.5))  # Reduz delay para 50%
+        await page.wait_for_timeout(min_delay)
+
+        # Espera estado de rede mais estável se ainda há scrolls disponíveis
+        try:
+            await page.wait_for_load_state("networkidle", timeout=min_delay * 2)
+        except Exception:
+            # Se timeout, continua mesmo assim
+            pass
 
         cur = await page.locator(card_selector).count()
         if cur <= prev:
-            break
+            no_growth_count += 1
+            # Se não cresceu 2 vezes seguidas, pára
+            if no_growth_count >= 2:
+                break
+        else:
+            no_growth_count = 0
         prev = cur
 
 
@@ -139,7 +168,8 @@ async def _collect_page_items(
 ) -> list[CardRow]:
     """Coleta itens de uma página."""
     await _try_accept_cookies(page)
-    await page.wait_for_selector(selectors.card, timeout=20000)
+    # Timeout reduzido de 20s para 10s - mais agressivo
+    await page.wait_for_selector(selectors.card, timeout=10000)
     await _scroll_until_no_growth(page, selectors.card, max_scrolls, scroll_delay_s)
 
     if debug:
@@ -221,7 +251,9 @@ def _build_offer_from_row(row: CardRow, seen_ids: set[str]) -> Optional[ScrapedO
         _row_text(row, "old_cents") or None,
     )
     if old_price_cents is None:
-        old_price_cents = infer_old_price_from_card_text(_row_text(row, "card_text"), price_cents)
+        old_price_cents = infer_old_price_from_card_text(
+            _row_text(row, "card_text"), price_cents
+        )
 
     discount_pct = discount_to_float(_row_text(row, "discount_text"))
     if discount_pct is None:
@@ -277,6 +309,9 @@ async def scrape_ml_offers_playwright(
             "locale": "pt-BR",
             "user_agent": DEFAULT_USER_AGENT,
             "extra_http_headers": {"Accept-Language": DEFAULT_ACCEPT_LANGUAGE},
+            # Desabilita imagens, fontes e CSS para acelerar carregamento
+            "ignore_https_errors": True,
+            "bypass_csp": True,
         }
         storage_state_path = _resolve_storage_state_path()
         if storage_state_path:
@@ -290,8 +325,14 @@ async def scrape_ml_offers_playwright(
         for page_num in range(1, max(1, scrape_config.number_of_pages) + 1):
             page_url = url_with_page(ml_config.url, page_num)
 
-            resp = await page.goto(page_url, wait_until="domcontentloaded", timeout=60000)
-            print(f"[ml] page={page_num} goto.status =", resp.status if resp else None, flush=True)
+            # wait_until="commit" é mais rápido que "domcontentloaded"
+            # timeout reduzido de 60s para 30s
+            resp = await page.goto(page_url, wait_until="commit", timeout=30000)
+            print(
+                f"[ml] page={page_num} goto.status =",
+                resp.status if resp else None,
+                flush=True,
+            )
             print(f"[ml] page={page_num} final.url   =", page.url, flush=True)
             print(f"[ml] page={page_num} title       =", await page.title(), flush=True)
 
@@ -308,7 +349,9 @@ async def scrape_ml_offers_playwright(
             if scrape_config.debug_dump:
                 all_items_path = debug_dir / "items.json"
                 if all_items_path.exists():
-                    existing_items = json.loads(all_items_path.read_text(encoding="utf-8"))
+                    existing_items = json.loads(
+                        all_items_path.read_text(encoding="utf-8")
+                    )
                 else:
                     existing_items = []
                 existing_items.extend(items)
@@ -332,4 +375,3 @@ async def scrape_ml_offers_playwright(
         await browser.close()
 
     return offers
-

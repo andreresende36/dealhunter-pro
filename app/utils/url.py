@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import re
 from typing import Literal, Tuple
-from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qs,
+    parse_qsl,
+    unquote,
+    urlencode,
+    urlparse,
+    urlsplit,
+    urlunsplit,
+)
 
 ML_DOMAIN = "mercadolivre.com.br"
 ML_BASE_URL = "https://www.mercadolivre.com.br"
@@ -89,5 +97,6 @@ def url_with_page(base_url: str, page_num: int) -> str:
     qs = dict(parse_qsl(parts.query, keep_blank_values=True))
     qs["page"] = str(page_num)
     new_query = urlencode(qs)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
-
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, new_query, parts.fragment)
+    )

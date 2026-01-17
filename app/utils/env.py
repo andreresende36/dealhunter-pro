@@ -39,4 +39,3 @@ def env_bool(name: str, default: bool = False) -> bool:
     if not v:
         return default
     return v in {"1", "true", "yes", "y", "on"}
-

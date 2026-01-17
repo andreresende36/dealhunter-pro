@@ -7,4 +7,3 @@ __all__ = [
     "scrape_ml_offers_playwright",
     "enrich_offers_affiliate_details",
 ]
-
