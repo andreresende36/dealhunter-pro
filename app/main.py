@@ -1,17 +1,14 @@
-# app/main.py
+"""Ponto de entrada principal da aplicação."""
+
 from __future__ import annotations
 
 import asyncio
-import os
-
-from dotenv import load_dotenv
 
 from runner import run_once
 
 
 async def main() -> None:
-    load_dotenv()
-
+    """Função principal assíncrona."""
     # Para teste: roda uma vez e finaliza (mais simples)
     # Se você quiser loop/scheduler depois, a gente evolui daqui.
     await run_once()
