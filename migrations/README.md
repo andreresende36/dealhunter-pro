@@ -23,6 +23,7 @@ psql -h <seu-host> -U <seu-usuario> -d <seu-database> -f migrations/001_initial_
 ## Estrutura das Migrações
 
 - `001_initial_schema.sql`: Schema inicial com todas as tabelas, índices e triggers
+- `002_enable_rls_policies.sql`: Habilita RLS e cria políticas para permitir acesso via API REST do Supabase
 
 ## Ordem de Aplicação
 

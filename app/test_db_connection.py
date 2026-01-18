@@ -7,10 +7,8 @@ import asyncio
 import socket
 import sys
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import text
 
 # Garante que estamos no diretório correto antes dos imports locais
 APP_DIR = Path(__file__).parent
@@ -36,57 +34,34 @@ def diagnose_connection() -> bool:
     # Carrega configuração
     try:
         config = get_config()
-        db_url = config.database.url
+        supabase_url = config.database.supabase_url
         print("✅ Configuração carregada")
         print()
     except Exception as e:
         print(f"❌ Erro ao carregar configuração: {e}")
         return False
 
-    # Parse da URL
+    # Parse da URL do Supabase
     try:
-        parsed = urlparse(db_url)
+        parsed = urlparse(supabase_url)
         host = parsed.hostname
         if not host:
             print("❌ Host não encontrado na URL")
-            print(f"   URL: {db_url[:50]}...")
+            print(f"   URL: {supabase_url[:50]}...")
             return False
-        port = parsed.port or 5432
-        user = parsed.username
-        database = parsed.path.lstrip("/") if parsed.path else "postgres"
+
+        # Para diagnóstico, usamos porta padrão HTTP/HTTPS do Supabase
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
         print("📋 Informações da Conexão:")
-        print(f"   Protocolo: {parsed.scheme}")
+        print(f"   Supabase URL: {supabase_url}")
         print(f"   Host: {host}")
-        print(f"   Porta: {port}")
-        print(f"   Usuário: {user}")
-        print(f"   Database: {database}")
+        print(f"   Protocolo: {parsed.scheme}")
         print()
-
-        # Verifica se está usando asyncpg
-        if "+asyncpg" not in parsed.scheme:
-            print("⚠️  AVISO: URL não contém '+asyncpg'")
-            print("   A URL deveria ser: postgresql+asyncpg://...")
-            print("   Atual: postgresql://...")
-            print()
-
-        # Verifica porta
-        if port == 5432:
-            print("ℹ️  Usando porta 5432 (Session Mode)")
-            print("   Para connection pooling, use porta 6543")
-            print()
-        elif port == 6543:
-            print("ℹ️  Usando porta 6543 (Connection Pooling)")
-            print("   Esta é a porta recomendada para produção")
-            print()
-        else:
-            print(f"⚠️  Porta não padrão: {port}")
-            print("   Portas padrão do Supabase: 5432 (session) ou 6543 (pooling)")
-            print()
 
     except Exception as e:
         print(f"❌ Erro ao fazer parse da URL: {e}")
-        print(f"   URL: {db_url[:50]}...")
+        print(f"   URL: {supabase_url[:50]}...")
         return False
 
     # Teste de DNS
@@ -172,33 +147,11 @@ async def test_connection() -> bool:
         db_config = config.database
         print("✅ Configuração carregada")
 
-        # Mostra URL (sem senha)
-        db_url = db_config.url
-        if "@" in db_url:
-            # Oculta senha
-            parts = db_url.split("@")
-            if len(parts) == 2:
-                user_pass = parts[0].split("//")[-1]
-                if ":" in user_pass:
-                    user = user_pass.split(":")[0]
-                    db_url_safe = db_url.replace(user_pass, f"{user}:***")
-                else:
-                    db_url_safe = db_url
-            else:
-                db_url_safe = db_url
-        else:
-            db_url_safe = db_url
-
-        print(f"   Database URL: {db_url_safe[:70]}...")
-
-        # Mostra informações adicionais sobre a URL
-        parsed = urlparse(db_url)
-        print(f"   Host: {parsed.hostname}")
-        print(f"   Porta: {parsed.port or 'padrão (5432)'}")
-        print(f"   Usuário: {parsed.username}")
-        print(f"   Database: {parsed.path.lstrip('/') or 'padrão'}")
-        if parsed.query:
-            print(f"   Query params: {parsed.query}")
+        # Mostra informações da configuração Supabase
+        print(f"   Supabase URL: {db_config.supabase_url}")
+        print(
+            f"   Chave: {'Configurada' if db_config.supabase_key else 'Não configurada'}"
+        )
         print()
     except Exception as e:
         print(f"❌ Erro ao carregar configuração: {type(e).__name__}: {e}")
@@ -216,45 +169,34 @@ async def test_connection() -> bool:
     except Exception as e:
         print(f"❌ Erro ao inicializar conexão: {type(e).__name__}: {e}")
         print()
-        print("💡 Verifique se DATABASE_URL está correta no arquivo .env")
+        print(
+            "💡 Verifique se SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY "
+            "estão configuradas no arquivo .env"
+        )
         return False
 
     # Testa conexão
     try:
         print("🔄 Testando conexão...")
-        async for session in get_session():
-            # Teste 1: Query simples
-            result = await session.execute(text("SELECT 1 as test"))
-            row = result.scalar()
-            if row == 1:
-                print("✅ Query simples executada com sucesso")
-            else:
-                print(f"⚠️  Query retornou valor inesperado: {row}")
-                return False
+        async for client in get_session():
+            # Teste 1: Query simples (tenta selecionar da primeira tabela)
+            try:
+                # Tenta fazer um SELECT simples na tabela offers
+                client.table("offers").select("id").limit(1).execute()
+                print("✅ Conexão com Supabase funcionando")
+            except Exception as e:
+                # Se a tabela não existir, ainda testamos se a API responde
+                error_msg = str(e).lower()
+                if "relation" in error_msg or "does not exist" in error_msg:
+                    print(
+                        "✅ Conexão com Supabase OK (tabelas podem não existir ainda)"
+                    )
+                else:
+                    raise
 
-            # Teste 2: Verificar versão do PostgreSQL
-            result = await session.execute(text("SELECT version()"))
-            version = result.scalar()
-            if version:
-                print(f"✅ Versão do PostgreSQL: {version.split(',')[0]}")
-            else:
-                print("✅ Versão do PostgreSQL: (não disponível)")
-
-            # Teste 3: Verificar se as tabelas existem
+            # Teste 2: Verificar se as tabelas existem (tentando SELECT em cada uma)
             print()
             print("🔄 Verificando tabelas...")
-            result = await session.execute(
-                text(
-                    """
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                    ORDER BY table_name
-                    """
-                )
-            )
-            tables = [row[0] for row in result.fetchall()]
-
             expected_tables = [
                 "offers",
                 "scrape_runs",
@@ -263,15 +205,25 @@ async def test_connection() -> bool:
                 "affiliate_info",
             ]
 
-            if tables:
-                print(f"✅ Tabelas encontradas: {len(tables)}")
+            existing_tables = []
+            for table in expected_tables:
+                try:
+                    # Tenta fazer um SELECT simples para verificar se a tabela existe
+                    client.table(table).select("id").limit(0).execute()
+                    existing_tables.append(table)
+                except Exception:
+                    # Tabela não existe ou não está acessível
+                    pass
+
+            if existing_tables:
+                print(f"✅ Tabelas encontradas: {len(existing_tables)}")
                 for table in expected_tables:
-                    if table in tables:
+                    if table in existing_tables:
                         print(f"   ✅ {table}")
                     else:
                         print(f"   ⚠️  {table} (não encontrada)")
 
-                missing = set[str](expected_tables) - set[Any](tables)
+                missing = set[str](expected_tables) - set(existing_tables)
                 if missing:
                     print()
                     print("⚠️  Algumas tabelas estão faltando!")

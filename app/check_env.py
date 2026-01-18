@@ -71,7 +71,8 @@ def check_optional_config() -> list[str]:
     max_scrolls = int(os.getenv("ML_MAX_SCROLLS", "4"))
     if max_scrolls < 4:
         warnings.append(
-            f"ML_MAX_SCROLLS está em {max_scrolls}. Valores baixos podem resultar em poucas ofertas."
+            f"ML_MAX_SCROLLS está em {max_scrolls}. "
+            "Valores baixos podem resultar em poucas ofertas."
         )
 
     return warnings

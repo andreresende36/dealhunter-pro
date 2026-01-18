@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 import time
 from dataclasses import asdict
 from typing import Any
@@ -100,34 +101,71 @@ class ScrapeService:
         Returns:
             ID do ScrapeRun criado ou None
         """
-        if not self.config.database.url or "postgresql" not in self.config.database.url:
-            log("[scrape] DATABASE_URL não configurada. Pulando salvamento no banco.")
+        # Verifica se há configuração do Supabase
+        if (
+            not self.config.database.supabase_url
+            or not self.config.database.supabase_key
+        ):
+            log(
+                "[scrape] SUPABASE_URL ou chave de API não configuradas. "
+                "Pulando salvamento no banco."
+            )
+            return None
+
+        if not offers:
+            log("[scrape] Nenhuma oferta para salvar no banco.")
             return None
 
         try:
+            log(
+                f"[scrape] Inicializando conexão com banco para salvar {len(offers)} ofertas..."
+            )
             init_db(self.config.database)
-            async for session in get_session():
-                db_service = DatabaseService(session)
-                config_snapshot = {
-                    "min_discount_pct": self.config.scrape.min_discount_pct,
-                    "max_scrolls": self.config.scrape.max_scrolls,
-                    "number_of_pages": self.config.scrape.number_of_pages,
-                    "only_with_old_price": self.config.scrape.only_with_old_price,
-                }
-                scrape_run = await db_service.save_scrape_run_with_offers(
-                    offers=offers,
-                    min_discount_pct=self.config.scrape.min_discount_pct,
-                    max_scrolls=self.config.scrape.max_scrolls,
-                    number_of_pages=self.config.scrape.number_of_pages,
-                    config_snapshot=config_snapshot,
-                    save_price_history=True,
-                    save_affiliate_info=True,
-                )
-                scrape_run_id = scrape_run.id
-                log(f"[scrape] Dados salvos no banco. ScrapeRun ID: {scrape_run_id}")
-                return scrape_run_id
+
+            scrape_run_id = None
+            async for client in get_session():
+                try:
+                    db_service = DatabaseService(client)
+                    config_snapshot = {
+                        "min_discount_pct": self.config.scrape.min_discount_pct,
+                        "max_scrolls": self.config.scrape.max_scrolls,
+                        "number_of_pages": self.config.scrape.number_of_pages,
+                        "only_with_old_price": self.config.scrape.only_with_old_price,
+                    }
+
+                    log(f"[scrape] Salvando {len(offers)} ofertas no banco...")
+                    scrape_run = await db_service.save_scrape_run_with_offers(
+                        offers=offers,
+                        min_discount_pct=self.config.scrape.min_discount_pct,
+                        max_scrolls=self.config.scrape.max_scrolls,
+                        number_of_pages=self.config.scrape.number_of_pages,
+                        config_snapshot=config_snapshot,
+                        save_price_history=True,
+                        save_affiliate_info=True,
+                    )
+
+                    scrape_run_id = scrape_run["id"]
+                    log(
+                        f"[scrape] ✅ Dados salvos no banco com sucesso! "
+                        f"ScrapeRun ID: {scrape_run_id}, "
+                        f"Ofertas salvas: {len(offers)}"
+                    )
+                    break  # Sair do loop após salvar com sucesso
+                except Exception as e:
+                    log(
+                        f"[scrape] ❌ ERRO ao salvar ofertas no banco: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    log(f"[scrape] Traceback: {traceback.format_exc()}")
+                    raise
+
+            return scrape_run_id
         except Exception as e:
-            log(f"[scrape] ERRO ao salvar no banco: {type(e).__name__}: {e}")
+            log(
+                f"[scrape] ❌ ERRO ao conectar/salvar no banco: "
+                f"{type(e).__name__}: {e}"
+            )
+            log(f"[scrape] Traceback completo: {traceback.format_exc()}")
             return None
 
     def print_offers(self, offers: list[ScrapedOffer]) -> None:
@@ -143,7 +181,10 @@ class ScrapeService:
                 f"[{idx:02d}] {offer.title}"
                 f"\n     De: {format_brl(offer.old_price_cents)}"
                 f" | Agora: {format_brl(offer.price_cents)}"
-                f" | Desc: {('-' if offer.discount_pct is None else f'{offer.discount_pct:.0f}%')}"  # noqa: E501
+                f" | Desc: {(
+                    '-' if offer.discount_pct is None
+                    else f'{offer.discount_pct:.0f}%'
+                )}"
                 f" | Comissão: {format_pct(offer.commission_pct)}"
                 f"\n     URL: {offer.url}"
                 f"\n     Link afiliado: {offer.affiliate_link or '-'}"
