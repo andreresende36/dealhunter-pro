@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from runner import run_once
+from services.runner import run_once
 
 
 async def main() -> None:

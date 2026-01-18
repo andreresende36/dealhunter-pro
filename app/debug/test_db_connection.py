@@ -11,7 +11,8 @@ from urllib.parse import urlparse
 
 
 # Garante que estamos no diretório correto antes dos imports locais
-APP_DIR = Path(__file__).parent
+# Este arquivo está em debug/, então precisamos ir para o diretório pai (app/)
+APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR))
 
 from config import get_config  # noqa: E402

@@ -211,3 +211,6 @@ storage_state.json
 items.json
 ml_ofertas_p*.png
 ml_ofertas_rendered_p*.html
+
+# Playwright user data (cache, cookies, storage)
+pw_user_data/

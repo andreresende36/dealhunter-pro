@@ -9,7 +9,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Garante que estamos no diretório correto
-APP_DIR = Path(__file__).parent
+# Este arquivo está em debug/, então precisamos ir para o diretório pai (app/)
+APP_DIR = Path(__file__).parent.parent
 os.chdir(APP_DIR)
 
 # Adiciona o diretório app ao path
