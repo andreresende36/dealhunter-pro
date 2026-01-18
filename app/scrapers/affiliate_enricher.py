@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import pathlib
 from typing import Optional
 
 from playwright.async_api import async_playwright  # type: ignore
@@ -14,40 +12,12 @@ from models import ScrapedOffer
 from scrapers.constants import (
     DEFAULT_ACCEPT_LANGUAGE,
     DEFAULT_USER_AGENT,
-    RESOURCE_BLOCK_TYPES,
-    TRACKER_HOST_SNIPPETS,
+)
+from scrapers.playwright_utils import (
+    resolve_storage_state_path,
+    route_block_heavy_resources,
 )
 from utils.price import parse_commission_pct
-
-
-def _resolve_storage_state_path() -> Optional[str]:
-    """Resolve o caminho do arquivo de storage state do Playwright."""
-    env_path = os.getenv("PLAYWRIGHT_STORAGE_STATE", "").strip()
-    if env_path:
-        candidate = pathlib.Path(env_path).expanduser()
-        if candidate.exists():
-            return str(candidate)
-        return None
-
-    parent_dir = pathlib.Path(__file__).resolve().parent.parent
-    default_path = parent_dir / "storage_state.json"
-    if default_path.exists():
-        return str(default_path)
-    return None
-
-
-async def _route_block_heavy(route, request) -> None:
-    """Bloqueia recursos pesados e trackers."""
-    rt = request.resource_type
-    url = request.url.lower()
-
-    if rt in RESOURCE_BLOCK_TYPES:
-        return await route.abort()
-
-    if any(token in url for token in TRACKER_HOST_SNIPPETS):
-        return await route.abort()
-
-    return await route.continue_()
 
 
 async def _read_input_value(locator) -> Optional[str]:
@@ -168,11 +138,11 @@ async def enrich_offers_affiliate_details(
             "user_agent": DEFAULT_USER_AGENT,
             "extra_http_headers": {"Accept-Language": DEFAULT_ACCEPT_LANGUAGE},
         }
-        storage_state_path = _resolve_storage_state_path()
+        storage_state_path = resolve_storage_state_path()
         if storage_state_path:
             context_kwargs["storage_state"] = storage_state_path
         context = await browser.new_context(**context_kwargs)
-        await context.route("**/*", _route_block_heavy)
+        await context.route("**/*", route_block_heavy_resources)
 
         queue: asyncio.Queue[ScrapedOffer] = asyncio.Queue()
         for offer in offers:

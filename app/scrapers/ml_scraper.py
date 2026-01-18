@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 from dataclasses import dataclass
 from typing import Optional, TypedDict
@@ -16,9 +15,11 @@ from scrapers.constants import (
     DEFAULT_ACCEPT_LANGUAGE,
     DEFAULT_USER_AGENT,
     MAX_CARDS_PER_PAGE,
-    RESOURCE_BLOCK_TYPES,
     SCROLL_PIXELS,
-    TRACKER_HOST_SNIPPETS,
+)
+from scrapers.playwright_utils import (
+    resolve_storage_state_path,
+    route_block_heavy_resources,
 )
 from utils.price import (
     calc_discount,
@@ -67,22 +68,6 @@ class ScrapeSelectors:
     discount: str
 
 
-def _resolve_storage_state_path() -> Optional[str]:
-    """Resolve o caminho do arquivo de storage state do Playwright."""
-    env_path = os.getenv("PLAYWRIGHT_STORAGE_STATE", "").strip()
-    if env_path:
-        candidate = pathlib.Path(env_path).expanduser()
-        if candidate.exists():
-            return str(candidate)
-        return None
-
-    parent_dir = pathlib.Path(__file__).resolve().parent.parent
-    default_path = parent_dir / "storage_state.json"
-    if default_path.exists():
-        return str(default_path)
-    return None
-
-
 async def _try_accept_cookies(page) -> None:
     """Tenta aceitar cookies na página com timeout curto."""
     for label in ("Aceitar cookies", "Aceptar cookies", "Accept cookies"):
@@ -94,26 +79,6 @@ async def _try_accept_cookies(page) -> None:
                 return
         except Exception:
             pass
-
-
-async def _route_block_heavy(route, request) -> None:
-    """Bloqueia recursos pesados e trackers para acelerar carregamento."""
-    rt = request.resource_type
-    url = request.url.lower()
-
-    # Bloqueia imagens, fontes e mídia
-    if rt in RESOURCE_BLOCK_TYPES:
-        return await route.abort()
-
-    # Bloqueia trackers e analytics
-    if any(token in url for token in TRACKER_HOST_SNIPPETS):
-        return await route.abort()
-
-    # Bloqueia CSS também (não necessário para scraping)
-    if rt == "stylesheet":
-        return await route.abort()
-
-    return await route.continue_()
 
 
 async def _scroll_until_no_growth(
@@ -313,12 +278,12 @@ async def scrape_ml_offers_playwright(
             "ignore_https_errors": True,
             "bypass_csp": True,
         }
-        storage_state_path = _resolve_storage_state_path()
+        storage_state_path = resolve_storage_state_path()
         if storage_state_path:
             context_kwargs["storage_state"] = storage_state_path
         context = await browser.new_context(**context_kwargs)
 
-        await context.route("**/*", _route_block_heavy)
+        await context.route("**/*", route_block_heavy_resources)
 
         page = await context.new_page()
 

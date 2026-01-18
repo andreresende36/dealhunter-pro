@@ -123,12 +123,44 @@ class AffiliateConfig:
 
 
 @dataclass(frozen=True)
+class DatabaseConfig:
+    """Configurações do banco de dados."""
+
+    url: str
+    echo: bool = False
+    pool_size: int = 5
+    max_overflow: int = 10
+
+    @classmethod
+    def from_env(cls) -> DatabaseConfig:
+        """Cria configuração a partir de variáveis de ambiente."""
+        # Suporta URL completa do Supabase ou componentes individuais
+        url = env_string("DATABASE_URL", "")
+        if not url:
+            # Monta URL a partir de componentes
+            host = env_string("DB_HOST", "localhost")
+            port = env_int("DB_PORT", 5432)
+            user = env_string("DB_USER", "postgres")
+            password = env_string("DB_PASSWORD", "")
+            database = env_string("DB_NAME", "postgres")
+            url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+
+        return cls(
+            url=url,
+            echo=env_bool("DB_ECHO", default=False),
+            pool_size=env_int("DB_POOL_SIZE", 5),
+            max_overflow=env_int("DB_MAX_OVERFLOW", 10),
+        )
+
+
+@dataclass(frozen=True)
 class Config:
     """Configuração completa do projeto."""
 
     ml: MLConfig
     scrape: ScrapeConfig
     affiliate: AffiliateConfig
+    database: DatabaseConfig
     max_items_print: int
 
     @classmethod
@@ -138,6 +170,7 @@ class Config:
             ml=MLConfig.from_env(),
             scrape=ScrapeConfig.from_env(),
             affiliate=AffiliateConfig.from_env(),
+            database=DatabaseConfig.from_env(),
             max_items_print=env_int("MAX_ITEMS_PRINT", 20),
         )
 

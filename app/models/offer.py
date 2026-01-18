@@ -21,4 +21,3 @@ class ScrapedOffer:
     affiliate_link: str | None
     affiliation_id: str | None
     source: str = "ml_offers_playwright"
-
