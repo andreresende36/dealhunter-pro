@@ -15,16 +15,45 @@ class OfferRepository:
 
     def __init__(self, client: Client) -> None:
         self.client = client
+        self._marketplace_cache: dict[str, str] = {}
+
+    async def _get_marketplace_id(self, marketplace_name: str) -> str:
+        """Obtém (ou cria) o marketplace pelo nome e retorna o ID."""
+        name = (marketplace_name or "").strip()
+        if not name:
+            raise ValueError("Marketplace inválido para salvar oferta.")
+
+        cached = self._marketplace_cache.get(name)
+        if cached:
+            return cached
+
+        response = (
+            self.client.table("marketplaces")
+            .select("id")
+            .eq("name", name)
+            .execute()
+        )
+        if response.data:
+            marketplace_id = response.data[0]["id"]
+            self._marketplace_cache[name] = marketplace_id
+            return marketplace_id
+
+        insert_response = (
+            self.client.table("marketplaces").insert({"name": name}).execute()
+        )
+        marketplace_id = insert_response.data[0]["id"]
+        self._marketplace_cache[name] = marketplace_id
+        return marketplace_id
 
     async def get_by_external_id(
-        self, external_id: str, marketplace: str
+        self, external_id: str, marketplace_id: str
     ) -> dict[str, Any] | None:
         """Busca uma oferta pelo ID externo."""
         response = (
             self.client.table("offers")
             .select("*")
             .eq("external_id", external_id)
-            .eq("marketplace", marketplace)
+            .eq("marketplace_id", marketplace_id)
             .execute()
         )
         if response.data and len(response.data) > 0:
@@ -38,12 +67,11 @@ class OfferRepository:
         Cria ou atualiza uma oferta a partir de um ScrapedOffer.
         Retorna (offer_dict, is_new).
         """
-        existing = await self.get_by_external_id(
-            scraped.external_id, scraped.marketplace
-        )
+        marketplace_id = await self._get_marketplace_id(scraped.marketplace)
+        existing = await self.get_by_external_id(scraped.external_id, marketplace_id)
 
         offer_data = {
-            "marketplace": scraped.marketplace,
+            "marketplace_id": marketplace_id,
             "external_id": scraped.external_id,
             "title": scraped.title,
             "url": scraped.url,
@@ -53,11 +81,6 @@ class OfferRepository:
             "discount_pct": (
                 int(scraped.discount_pct)
                 if scraped.discount_pct is not None
-                else None
-            ),
-            "commission_pct": (
-                int(scraped.commission_pct)
-                if scraped.commission_pct is not None
                 else None
             ),
             "source": scraped.source,

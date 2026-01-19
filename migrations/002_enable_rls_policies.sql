@@ -3,11 +3,22 @@
 -- Data: 2026-01-18
 
 -- Habilita Row Level Security em todas as tabelas
+ALTER TABLE marketplaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE offers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scrape_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE offer_scrape_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE price_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE affiliate_info ENABLE ROW LEVEL SECURITY;
+
+-- Políticas para tabela 'marketplaces'
+CREATE POLICY "marketplaces_select_anon" ON marketplaces
+    FOR SELECT TO anon USING (true);
+
+CREATE POLICY "marketplaces_insert_anon" ON marketplaces
+    FOR INSERT TO anon WITH CHECK (true);
+
+CREATE POLICY "marketplaces_update_anon" ON marketplaces
+    FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- Políticas para tabela 'offers'
 CREATE POLICY "offers_select_anon" ON offers
