@@ -99,7 +99,7 @@ ML_MAX_SCROLLS=4
 NUMBER_OF_PAGES=1
 
 # Desconto mínimo para considerar oferta (%)
-MIN_DISCOUNT_PCT=50.0
+MIN_DISCOUNT_PCT=50
 
 # Mostrar apenas ofertas com preço antigo
 ONLY_WITH_OLD_PRICE=false
@@ -152,8 +152,9 @@ python test_db_connection.py
 1. No Supabase Dashboard, vá em **SQL Editor**
 2. Clique em **New Query**
 3. Abra o arquivo `migrations/001_initial_schema.sql`
-4. Cole todo o conteúdo no editor
-5. Clique em **Run** para executar
+4. Cole todo o conteúdo no editor e execute
+5. Repita para `migrations/002_enable_rls_policies.sql`
+6. Repita para `migrations/003_update_schema_uuid_ints.sql`
 
 #### Opção B: Via Supabase CLI
 
@@ -175,6 +176,8 @@ supabase db push
 
 ```bash
 psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/001_initial_schema.sql
+psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/002_enable_rls_policies.sql
+psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/003_update_schema_uuid_ints.sql
 ```
 
 ### 3. Estrutura do Banco de Dados
@@ -290,7 +293,9 @@ dealhunter-pro/
 │   └── requirements.txt     # Dependências Python
 ├── migrations/              # Migrações SQL
 │   ├── README.md
-│   └── 001_initial_schema.sql
+│   ├── 001_initial_schema.sql
+│   ├── 002_enable_rls_policies.sql
+│   └── 003_update_schema_uuid_ints.sql
 └── README.md               # Este arquivo
 ```
 
@@ -395,7 +400,7 @@ DATABASE_URL=postgresql+asyncpg://postgres.xxxxx:SENHA@aws-0-sa-east-1.pooler.su
 
 ## 📦 Migrações
 
-As migrações SQL estão em `migrations/001_initial_schema.sql`.
+As migrações SQL estão em `migrations/`.
 
 ### Como Aplicar
 
@@ -404,6 +409,8 @@ Veja [Setup do Banco de Dados - Aplicar Migrações](#2-aplicar-migrações)
 ### Estrutura das Migrações
 
 - `001_initial_schema.sql`: Schema inicial com todas as tabelas, índices e triggers
+- `002_enable_rls_policies.sql`: Habilita RLS e cria políticas para API
+- `003_update_schema_uuid_ints.sql`: Atualiza IDs para UUID e percentuais para INT
 
 ### Ordem de Aplicação
 

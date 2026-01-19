@@ -228,13 +228,11 @@ async def test_connection() -> bool:
                 if missing:
                     print()
                     print("⚠️  Algumas tabelas estão faltando!")
-                    print(
-                        "   Execute as migrações em migrations/001_initial_schema.sql"
-                    )
+                    print("   Execute as migrações em migrations/ (001, 002, 003)")
                     print("   Veja DATABASE_SETUP.md para instruções.")
             else:
                 print("⚠️  Nenhuma tabela encontrada no banco")
-                print("   Execute as migrações em migrations/001_initial_schema.sql")
+                print("   Execute as migrações em migrations/ (001, 002, 003)")
                 print("   Veja DATABASE_SETUP.md para instruções.")
 
             break  # Sair do loop após primeira iteração

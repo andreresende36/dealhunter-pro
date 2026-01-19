@@ -36,7 +36,7 @@ async def test_save_offer():
         image_url="https://example.com/image.jpg",
         price_cents=10000,  # R$ 100,00
         old_price_cents=15000,  # R$ 150,00
-        discount_pct=33.33,
+        discount_pct=33,
         commission_pct=None,
         affiliate_link=None,
         affiliation_id=None,
@@ -55,7 +55,7 @@ async def test_save_offer():
                 # Salva apenas 1 oferta de teste
                 scrape_run = await db_service.save_scrape_run_with_offers(
                     offers=[test_offer],
-                    min_discount_pct=30.0,
+                    min_discount_pct=30,
                     max_scrolls=4,
                     number_of_pages=1,
                     config_snapshot={"test": True},

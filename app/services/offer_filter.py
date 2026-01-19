@@ -46,10 +46,10 @@ class OfferFilter:
         return filtered
 
     @staticmethod
-    def _offer_sort_key(offer: ScrapedOffer) -> tuple[float, int]:
+    def _offer_sort_key(offer: ScrapedOffer) -> tuple[int, int]:
         """
         Chave de ordenação para ofertas.
         Ordena por desconto decrescente, depois preço crescente.
         """
-        discount = offer.discount_pct if offer.discount_pct is not None else -1.0
+        discount = offer.discount_pct if offer.discount_pct is not None else -1
         return (-discount, offer.price_cents)
