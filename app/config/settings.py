@@ -67,7 +67,7 @@ class ScrapeConfig:
     number_of_pages: int
     scroll_delay_s: float
     page_delay_s: float
-    min_discount_pct: float
+    min_discount_pct: int
     only_with_old_price: bool
     debug_dump: bool
 
@@ -79,7 +79,7 @@ class ScrapeConfig:
             number_of_pages=env_int("NUMBER_OF_PAGES", 1),
             scroll_delay_s=env_float("ML_SCROLL_DELAY_S", 0.45),
             page_delay_s=env_float("ML_PAGE_DELAY_S", 0.0),
-            min_discount_pct=env_float("MIN_DISCOUNT_PCT", 50.0),
+            min_discount_pct=env_int("MIN_DISCOUNT_PCT", 50),
             only_with_old_price=env_bool("ONLY_WITH_OLD_PRICE", default=False),
             debug_dump=env_bool("DEBUG_DUMP", default=False),
         )

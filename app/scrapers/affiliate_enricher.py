@@ -50,7 +50,7 @@ async def _extract_affiliate_details(
     page,
     url: str,
     config: AffiliateConfig,
-) -> tuple[Optional[float], Optional[str], Optional[str]]:
+) -> tuple[Optional[int], Optional[str], Optional[str]]:
     """Extrai detalhes de afiliado de uma página de produto."""
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)

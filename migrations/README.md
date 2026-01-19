@@ -9,6 +9,8 @@ Este diretório contém as migrações SQL do banco de dados.
 2. Vá em "SQL Editor"
 3. Cole o conteúdo do arquivo `001_initial_schema.sql`
 4. Execute o script
+5. Repita para `002_enable_rls_policies.sql`
+6. Repita para `003_update_schema_uuid_ints.sql`
 
 ### Opção 2: Via Supabase CLI
 ```bash
@@ -24,6 +26,7 @@ psql -h <seu-host> -U <seu-usuario> -d <seu-database> -f migrations/001_initial_
 
 - `001_initial_schema.sql`: Schema inicial com todas as tabelas, índices e triggers
 - `002_enable_rls_policies.sql`: Habilita RLS e cria políticas para permitir acesso via API REST do Supabase
+- `003_update_schema_uuid_ints.sql`: Ajusta IDs para UUID, percentuais para INT e FKs
 
 ## Ordem de Aplicação
 

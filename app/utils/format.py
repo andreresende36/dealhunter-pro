@@ -12,7 +12,7 @@ def format_brl(cents: int | None) -> str:
     return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def format_pct(value: float | None) -> str:
+def format_pct(value: float | int | None) -> str:
     """Formata porcentagem."""
     if value is None:
         return "-"

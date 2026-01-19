@@ -16,8 +16,8 @@ class ScrapedOffer:
     image_url: str | None
     price_cents: int
     old_price_cents: int | None
-    discount_pct: float | None
-    commission_pct: float | None
+    discount_pct: int | None
+    commission_pct: int | None
     affiliate_link: str | None
     affiliation_id: str | None
     source: str = "ml_offers_playwright"
