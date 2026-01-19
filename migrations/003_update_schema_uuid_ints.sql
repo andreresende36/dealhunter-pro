@@ -141,8 +141,20 @@ END $$;
 
 -- Ajusta colunas de percentuais para INTEGER
 ALTER TABLE offers
-    ALTER COLUMN discount_pct TYPE INTEGER USING ROUND(discount_pct)::INTEGER,
-    ALTER COLUMN commission_pct TYPE INTEGER USING ROUND(commission_pct)::INTEGER;
+    ALTER COLUMN discount_pct TYPE INTEGER USING ROUND(discount_pct)::INTEGER;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'offers'
+          AND column_name = 'commission_pct'
+    ) THEN
+        EXECUTE 'ALTER TABLE offers ALTER COLUMN commission_pct TYPE INTEGER USING ROUND(commission_pct)::INTEGER';
+    END IF;
+END $$;
 
 ALTER TABLE price_history
     ALTER COLUMN discount_pct TYPE INTEGER USING ROUND(discount_pct)::INTEGER;
@@ -261,7 +273,6 @@ ALTER TABLE offers
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Recria índices
-CREATE INDEX IF NOT EXISTS idx_offers_marketplace ON offers(marketplace);
 CREATE INDEX IF NOT EXISTS idx_offers_discount_pct ON offers(discount_pct);
 CREATE INDEX IF NOT EXISTS idx_offers_created_at ON offers(created_at);
 CREATE INDEX IF NOT EXISTS idx_offers_price_cents ON offers(price_cents);

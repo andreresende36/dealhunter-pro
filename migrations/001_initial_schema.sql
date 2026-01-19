@@ -5,10 +5,22 @@
 -- Extensões necessárias
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Tabela: marketplaces (Marketplaces)
+CREATE TABLE IF NOT EXISTS marketplaces (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT unique_marketplaces_name UNIQUE (name)
+);
+
+-- Marketplace inicial
+INSERT INTO marketplaces (name)
+VALUES ('Mercado Livre')
+ON CONFLICT (name) DO NOTHING;
+
 -- Tabela: offers (Ofertas)
 CREATE TABLE IF NOT EXISTS offers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    marketplace VARCHAR(50) NOT NULL,
+    marketplace_id UUID NOT NULL REFERENCES marketplaces(id) ON UPDATE CASCADE,
     external_id VARCHAR(100) NOT NULL,
     title VARCHAR(500) NOT NULL,
     url TEXT NOT NULL,
@@ -16,16 +28,15 @@ CREATE TABLE IF NOT EXISTS offers (
     price_cents INTEGER NOT NULL,
     old_price_cents INTEGER,
     discount_pct INTEGER,
-    commission_pct INTEGER,
     affiliate_info_id UUID,
     source VARCHAR(50) DEFAULT 'ml_offers_playwright',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_external_id UNIQUE (external_id)
+    CONSTRAINT unique_external_id UNIQUE (external_id, marketplace_id)
 );
 
 -- Índices para offers
-CREATE INDEX IF NOT EXISTS idx_offers_marketplace ON offers(marketplace);
+CREATE INDEX IF NOT EXISTS idx_offers_marketplace_id ON offers(marketplace_id);
 CREATE INDEX IF NOT EXISTS idx_offers_discount_pct ON offers(discount_pct);
 CREATE INDEX IF NOT EXISTS idx_offers_created_at ON offers(created_at);
 CREATE INDEX IF NOT EXISTS idx_offers_price_cents ON offers(price_cents);

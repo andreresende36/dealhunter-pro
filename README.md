@@ -155,6 +155,7 @@ python test_db_connection.py
 4. Cole todo o conteúdo no editor e execute
 5. Repita para `migrations/002_enable_rls_policies.sql`
 6. Repita para `migrations/003_update_schema_uuid_ints.sql`
+7. Repita para `migrations/004_update_marketplaces.sql`
 
 #### Opção B: Via Supabase CLI
 
@@ -178,12 +179,14 @@ supabase db push
 psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/001_initial_schema.sql
 psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/002_enable_rls_policies.sql
 psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/003_update_schema_uuid_ints.sql
+psql -h db.xxxxxxxxxxxxx.supabase.co -U postgres -d postgres -f migrations/004_update_marketplaces.sql
 ```
 
 ### 3. Estrutura do Banco de Dados
 
 O banco de dados contém as seguintes tabelas:
 
+- **marketplaces**: Catálogo de marketplaces
 - **offers**: Armazena as ofertas coletadas
 - **scrape_runs**: Registra cada execução de scraping
 - **offer_scrape_runs**: Relaciona ofertas às execuções
@@ -295,7 +298,8 @@ dealhunter-pro/
 │   ├── README.md
 │   ├── 001_initial_schema.sql
 │   ├── 002_enable_rls_policies.sql
-│   └── 003_update_schema_uuid_ints.sql
+│   ├── 003_update_schema_uuid_ints.sql
+│   └── 004_update_marketplaces.sql
 └── README.md               # Este arquivo
 ```
 
@@ -411,6 +415,7 @@ Veja [Setup do Banco de Dados - Aplicar Migrações](#2-aplicar-migrações)
 - `001_initial_schema.sql`: Schema inicial com todas as tabelas, índices e triggers
 - `002_enable_rls_policies.sql`: Habilita RLS e cria políticas para API
 - `003_update_schema_uuid_ints.sql`: Atualiza IDs para UUID e percentuais para INT
+- `004_update_marketplaces.sql`: Cria marketplaces e referencia ofertas por ID
 
 ### Ordem de Aplicação
 
