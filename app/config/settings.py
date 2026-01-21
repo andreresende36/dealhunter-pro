@@ -27,7 +27,7 @@ class MLConfig:
     def from_env(cls) -> MLConfig:
         """Cria configuração a partir de variáveis de ambiente."""
         return cls(
-            url=env_string("ML_URL", "https://www.mercadolivre.com.br/ofertas"),
+            url=env_string("ML_URL", "https://www.mercadolivre.com.br/afiliados/hub"),
             card_selector=env_string(
                 "CARD_SELECTOR",
                 ".andes-card.poly-card.poly-card--grid-card.poly-card--xlarge.andes-card--flat.andes-card--padding-0.andes-card--animated",
@@ -112,11 +112,11 @@ class AffiliateConfig:
             affiliate_share_text=env_string("AFFILIATE_SHARE_TEXT", "Compartilhar"),
             affiliate_link_selector=env_string(
                 "AFFILIATE_LINK_SELECTOR",
-                '[data-testid="text-field__label_link"]',
+                "copy_link",
             ),
             affiliation_id_selector=env_string(
                 "AFFILIATION_ID_SELECTOR",
-                '[data-testid="text-field__label_id"]',
+                "copy_id",
             ),
             concurrency=env_int("AFFILIATE_CONCURRENCY", 3),
         )
