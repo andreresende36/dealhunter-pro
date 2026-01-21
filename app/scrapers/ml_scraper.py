@@ -238,7 +238,7 @@ def _build_offer_from_row(row: CardRow, seen_ids: set[str]) -> Optional[ScrapedO
         image_url=image_url,
         price_cents=price_cents,
         old_price_cents=old_price_cents,
-        discount_pct=round(discount_pct, 2) if discount_pct is not None else None,
+        discount_pct=discount_pct if discount_pct is not None else None,
         commission_pct=None,
         affiliate_link=None,
         affiliation_id=None,

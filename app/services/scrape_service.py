@@ -62,7 +62,7 @@ class ScrapeService:
 
         log(
             f"[scrape] Após filtro: {len(filtered)} itens "
-            f"(>= {self.config.scrape.min_discount_pct:.2f}% desconto)"
+            f"(>= {self.config.scrape.min_discount_pct}% desconto)"
         )
 
         # Enriquece ofertas selecionadas com detalhes de afiliado
@@ -91,7 +91,7 @@ class ScrapeService:
 
         return {"metrics": metrics, "filtered_offers": filtered, "shown_offers": show}
 
-    async def _save_to_database(self, offers: list[ScrapedOffer]) -> int | None:
+    async def _save_to_database(self, offers: list[ScrapedOffer]) -> str | None:
         """
         Salva ofertas no banco de dados se configurado.
 
@@ -183,7 +183,7 @@ class ScrapeService:
                 f" | Agora: {format_brl(offer.price_cents)}"
                 f" | Desc: {(
                     '-' if offer.discount_pct is None
-                    else f'{offer.discount_pct:.0f}%'
+                    else f'{offer.discount_pct}%'
                 )}"
                 f" | Comissão: {format_pct(offer.commission_pct)}"
                 f"\n     URL: {offer.url}"

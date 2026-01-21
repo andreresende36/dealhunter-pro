@@ -42,39 +42,41 @@ def all_prices_to_cents(text: str) -> list[int]:
     return cents_list
 
 
-def discount_to_float(text: str) -> float | None:
-    """Extrai porcentagem de desconto do texto."""
+def discount_to_float(text: str) -> int | None:
+    """Extrai porcentagem de desconto do texto como inteiro."""
     if not text:
         return None
     m = re.search(r"(\d{1,3})\s*%+", text)
     if not m:
         return None
     try:
-        return float(m.group(1))
+        return int(m.group(1))
     except ValueError:
         return None
 
 
-def parse_commission_pct(text: str) -> float | None:
-    """Extrai porcentagem de comissão do texto."""
+def parse_commission_pct(text: str) -> int | None:
+    """Extrai porcentagem de comissão do texto como inteiro."""
     if not text:
         return None
     m = re.search(r"(\d+(?:[.,]\d+)?)", text)
     if not m:
         return None
     try:
-        return float(m.group(1).replace(",", "."))
+        value = float(m.group(1).replace(",", "."))
+        return int(round(value))
     except ValueError:
         return None
 
 
-def calc_discount(old_cents: int | None, price_cents: int) -> float | None:
+def calc_discount(old_cents: int | None, price_cents: int) -> int | None:
     """Calcula o desconto percentual entre preço antigo e novo."""
     if not old_cents or old_cents <= 0:
         return None
     if price_cents >= old_cents:
-        return 0.0
-    return ((old_cents - price_cents) / old_cents) * 100.0
+        return 0
+    discount = ((old_cents - price_cents) / old_cents) * 100.0
+    return int(round(discount))
 
 
 def digits_only(text: str) -> str:
