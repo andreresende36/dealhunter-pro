@@ -6,6 +6,7 @@ from config.settings import (
     ScrapeConfig,
     AffiliateConfig,
     DatabaseConfig,
+    EnrichmentConfig,
     get_config,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "ScrapeConfig",
     "AffiliateConfig",
     "DatabaseConfig",
+    "EnrichmentConfig",
     "get_config",
 ]

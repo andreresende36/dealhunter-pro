@@ -155,6 +155,28 @@ class DatabaseConfig:
 
 
 @dataclass(frozen=True)
+class EnrichmentConfig:
+    """Configurações de enriquecimento assíncrono."""
+
+    redis_url: str
+    queue_name: str
+    worker_concurrency: int
+    request_delay_s: float
+    job_timeout: str
+
+    @classmethod
+    def from_env(cls) -> EnrichmentConfig:
+        """Cria configuração a partir de variáveis de ambiente."""
+        return cls(
+            redis_url=env_string("REDIS_URL", "redis://localhost:6379/0"),
+            queue_name=env_string("ENRICHMENT_QUEUE_NAME", "enrichment"),
+            worker_concurrency=env_int("ENRICHMENT_WORKER_CONCURRENCY", 3),
+            request_delay_s=env_float("ENRICHMENT_REQUEST_DELAY_S", 0.5),
+            job_timeout=env_string("ENRICHMENT_JOB_TIMEOUT", "10m"),
+        )
+
+
+@dataclass(frozen=True)
 class Config:
     """Configuração completa do projeto."""
 
@@ -162,6 +184,7 @@ class Config:
     scrape: ScrapeConfig
     affiliate: AffiliateConfig
     database: DatabaseConfig
+    enrichment: EnrichmentConfig
     max_items_print: int
 
     @classmethod
@@ -172,6 +195,7 @@ class Config:
             scrape=ScrapeConfig.from_env(),
             affiliate=AffiliateConfig.from_env(),
             database=DatabaseConfig.from_env(),
+            enrichment=EnrichmentConfig.from_env(),
             max_items_print=env_int("MAX_ITEMS_PRINT", 20),
         )
 

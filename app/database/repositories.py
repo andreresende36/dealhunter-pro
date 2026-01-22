@@ -147,6 +147,190 @@ class OfferRepository:
         ).eq("id", offer_id).execute()
         return affiliate_info
 
+    async def get_by_id(self, offer_id: str) -> dict[str, Any] | None:
+        """Busca uma oferta pelo ID."""
+        response = (
+            self.client.table("offers")
+            .select("*")
+            .eq("id", offer_id)
+            .execute()
+        )
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        return None
+
+    async def update_offer_enrichment(
+        self,
+        offer_id: str,
+        old_price_cents: int | None = None,
+        discount_pct: int | None = None,
+        affiliate_link: str | None = None,
+        affiliation_id: str | None = None,
+        scrape_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Atualiza campos enriquecidos de uma oferta.
+
+        Args:
+            offer_id: ID da oferta
+            old_price_cents: Preço antigo em centavos
+            discount_pct: Porcentagem de desconto
+            affiliate_link: Link de afiliado
+            affiliation_id: ID de afiliação
+            scrape_run_id: ID da execução de scraping (opcional)
+
+        Returns:
+            Oferta atualizada
+        """
+        update_data: dict[str, Any] = {}
+
+        if old_price_cents is not None:
+            update_data["old_price_cents"] = old_price_cents
+
+        if discount_pct is not None:
+            update_data["discount_pct"] = int(discount_pct)
+
+        response = (
+            self.client.table("offers")
+            .update(update_data)
+            .eq("id", offer_id)
+            .execute()
+        )
+
+        if not response.data:
+            raise ValueError(f"Oferta com ID {offer_id} não encontrada")
+
+        updated_offer = response.data[0]
+
+        # Atualiza ou cria affiliate_info se houver dados de afiliado
+        if affiliate_link is not None or affiliation_id is not None:
+            # Busca affiliate_info existente
+            existing_affiliate = None
+            if updated_offer.get("affiliate_info_id"):
+                try:
+                    affiliate_response = (
+                        self.client.table("affiliate_info")
+                        .select("*")
+                        .eq("id", updated_offer["affiliate_info_id"])
+                        .execute()
+                    )
+                    if affiliate_response.data:
+                        existing_affiliate = affiliate_response.data[0]
+                except Exception:
+                    pass
+
+            affiliate_info_data: dict[str, Any] = {
+                "offer_id": offer_id,
+                "scrape_run_id": scrape_run_id,
+            }
+
+            if affiliate_link is not None:
+                affiliate_info_data["affiliate_link"] = affiliate_link
+            if affiliation_id is not None:
+                affiliate_info_data["affiliation_id"] = affiliation_id
+
+            if existing_affiliate:
+                # Atualiza affiliate_info existente
+                affiliate_response = (
+                    self.client.table("affiliate_info")
+                    .update(affiliate_info_data)
+                    .eq("id", existing_affiliate["id"])
+                    .execute()
+                )
+            else:
+                # Cria novo affiliate_info
+                affiliate_response = (
+                    self.client.table("affiliate_info")
+                    .insert(affiliate_info_data)
+                    .execute()
+                )
+                # Atualiza offer com affiliate_info_id
+                self.client.table("offers").update(
+                    {"affiliate_info_id": affiliate_response.data[0]["id"]}
+                ).eq("id", offer_id).execute()
+
+        return updated_offer
+
+    async def get_offers_needing_enrichment(
+        self,
+        limit: int = 100,
+        missing_old_price: bool = True,
+        missing_discount: bool = True,
+        missing_affiliate_link: bool = True,
+    ) -> list[dict[str, Any]]:
+        """
+        Busca ofertas que precisam de enriquecimento.
+
+        Args:
+            limit: Número máximo de ofertas a retornar
+            missing_old_price: Incluir ofertas sem old_price_cents
+            missing_discount: Incluir ofertas sem discount_pct
+            missing_affiliate_link: Incluir ofertas sem affiliate_link
+
+        Returns:
+            Lista de ofertas que precisam enriquecimento
+        """
+        # Para Supabase, precisamos fazer queries separadas e combinar resultados
+        # ou usar uma abordagem mais simples
+        all_offers: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        # Busca ofertas sem old_price_cents
+        if missing_old_price:
+            try:
+                response = (
+                    self.client.table("offers")
+                    .select("id, url, price_cents, old_price_cents, discount_pct, affiliate_info_id")
+                    .is_("old_price_cents", "null")
+                    .limit(limit)
+                    .execute()
+                )
+                if response.data:
+                    for offer in response.data:
+                        if offer["id"] not in seen_ids:
+                            all_offers.append(offer)
+                            seen_ids.add(offer["id"])
+            except Exception:
+                pass
+
+        # Busca ofertas sem discount_pct
+        if missing_discount:
+            try:
+                response = (
+                    self.client.table("offers")
+                    .select("id, url, price_cents, old_price_cents, discount_pct, affiliate_info_id")
+                    .is_("discount_pct", "null")
+                    .limit(limit)
+                    .execute()
+                )
+                if response.data:
+                    for offer in response.data:
+                        if offer["id"] not in seen_ids:
+                            all_offers.append(offer)
+                            seen_ids.add(offer["id"])
+            except Exception:
+                pass
+
+        # Busca ofertas sem affiliate_info_id
+        if missing_affiliate_link:
+            try:
+                response = (
+                    self.client.table("offers")
+                    .select("id, url, price_cents, old_price_cents, discount_pct, affiliate_info_id")
+                    .is_("affiliate_info_id", "null")
+                    .limit(limit)
+                    .execute()
+                )
+                if response.data:
+                    for offer in response.data:
+                        if offer["id"] not in seen_ids:
+                            all_offers.append(offer)
+                            seen_ids.add(offer["id"])
+            except Exception:
+                pass
+
+        return all_offers[:limit]
+
 
 class ScrapeRunRepository:
     """Repositório para operações com execuções de scraping."""

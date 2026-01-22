@@ -10,6 +10,7 @@ from typing import Any
 from config import Config
 from database import DatabaseService, get_session, init_db
 from models import ScrapedOffer
+from queues import enqueue_enrichment_job
 from scrapers import scrape_affiliate_hub
 from services.offer_filter import OfferFilter
 from utils.format import format_brl, format_pct
@@ -155,6 +156,10 @@ class ScrapeService:
                         f"ScrapeRun ID: {scrape_run_id}, "
                         f"Ofertas salvas: {len(offers)}"
                     )
+
+                    # Enfileira jobs de enriquecimento
+                    await self._enqueue_enrichment_jobs(offers, db_service)
+
                     break  # Sair do loop após salvar com sucesso
                 except Exception as e:
                     log(
@@ -172,6 +177,75 @@ class ScrapeService:
             )
             log(f"[scrape] Traceback completo: {traceback.format_exc()}")
             return None
+
+    async def _enqueue_enrichment_jobs(
+        self, offers: list[ScrapedOffer], db_service: DatabaseService
+    ) -> None:
+        """
+        Enfileira jobs de enriquecimento para as ofertas salvas.
+
+        Args:
+            offers: Lista de ofertas coletadas
+            db_service: Serviço de banco de dados
+        """
+        try:
+            # Verifica se Redis está configurado
+            if not self.config.enrichment.redis_url:
+                log(
+                    "[scrape] REDIS_URL não configurado. "
+                    "Pulando enfileiramento de jobs de enriquecimento."
+                )
+                return
+
+            log(f"[scrape] Enfileirando jobs de enriquecimento para {len(offers)} ofertas...")
+
+            jobs_enqueued = 0
+            jobs_failed = 0
+
+            for offer in offers:
+                try:
+                    # Busca a oferta no banco para obter o ID
+                    marketplace_id = await db_service.offers._get_marketplace_id(
+                        offer.marketplace
+                    )
+                    saved_offer = await db_service.offers.get_by_external_id(
+                        offer.external_id, marketplace_id
+                    )
+
+                    if not saved_offer:
+                        log(
+                            f"[scrape] Aviso: Oferta {offer.external_id} não encontrada "
+                            "no banco. Pulando enfileiramento."
+                        )
+                        jobs_failed += 1
+                        continue
+
+                    # Enfileira job de enriquecimento
+                    job_id = enqueue_enrichment_job(
+                        offer_id=saved_offer["id"],
+                        url=offer.url,
+                        current_price_cents=offer.price_cents,
+                        config=self.config.enrichment,
+                    )
+                    jobs_enqueued += 1
+
+                except Exception as e:
+                    log(
+                        f"[scrape] Erro ao enfileirar job para oferta {offer.external_id}: {e}"
+                    )
+                    jobs_failed += 1
+
+            log(
+                f"[scrape] ✅ Jobs de enriquecimento enfileirados: "
+                f"{jobs_enqueued} sucesso, {jobs_failed} falhas"
+            )
+
+        except Exception as e:
+            log(
+                f"[scrape] ❌ ERRO ao enfileirar jobs de enriquecimento: "
+                f"{type(e).__name__}: {e}"
+            )
+            log(f"[scrape] Traceback: {traceback.format_exc()}")
 
     def print_offers(self, offers: list[ScrapedOffer]) -> None:
         """
