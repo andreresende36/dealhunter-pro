@@ -10,10 +10,7 @@ from typing import Any
 from config import Config
 from database import DatabaseService, get_session, init_db
 from models import ScrapedOffer
-from scrapers import (
-    scrape_affiliate_hub,
-    validate_discounts_parallel,
-)
+from scrapers import scrape_affiliate_hub
 from services.offer_filter import OfferFilter
 from utils.format import format_brl, format_pct
 from utils.logging import log
@@ -29,11 +26,9 @@ class ScrapeService:
 
     async def run_scrape(self) -> dict[str, Any]:
         """
-        Executa uma rodada completa de scraping com o novo fluxo:
+        Executa uma rodada completa de scraping:
         1. Coleta produtos da Central de Afiliados
-        2. Extrai dados de afiliado (link e código)
-        3. Valida descontos em paralelo
-        4. Filtra por desconto mínimo
+        2. Filtra por desconto mínimo (se aplicável)
 
         Returns:
             Dicionário com métricas da execução
@@ -58,7 +53,6 @@ class ScrapeService:
                 affiliate_config=self.config.affiliate,
                 max_scrolls=self.config.scrape.max_scrolls,
                 scroll_delay_s=self.config.scrape.scroll_delay_s,
-                concurrency=self.config.affiliate.concurrency,
                 debug=self.config.scrape.debug_dump,
             )
         except Exception as e:
@@ -71,31 +65,7 @@ class ScrapeService:
         t1 = time.perf_counter()
         log(f"[scrape] Coleta OK: {len(offers)} produtos coletados em {t1 - t0:.2f}s")
 
-        # Etapa 2: Validação de desconto em paralelo
-        t2_start = time.perf_counter()
-        discount_results = await validate_discounts_parallel(
-            offers=offers,
-            ml_config=self.config.ml,
-            concurrency=self.config.affiliate.concurrency,
-        )
-
-        # Atualiza ofertas com dados de desconto
-        validated_count = 0
-        for offer in offers:
-            if offer.external_id in discount_results:
-                old_price, discount = discount_results[offer.external_id]
-                offer.old_price_cents = old_price
-                offer.discount_pct = discount
-                if old_price is not None or discount is not None:
-                    validated_count += 1
-
-        t2 = time.perf_counter()
-        log(
-            f"[scrape] Validação OK: {validated_count}/{len(offers)} ofertas validadas "
-            f"em {t2 - t2_start:.2f}s"
-        )
-
-        # Etapa 3: Filtra ofertas por desconto mínimo
+        # Filtra ofertas por desconto mínimo
         filtered = self.filter_service.filter_offers(offers)
 
         log(
@@ -106,22 +76,20 @@ class ScrapeService:
         # Prepara ofertas para exibição
         show = filtered[: self.config.max_items_print]
 
-        t3 = time.perf_counter()
+        t2 = time.perf_counter()
 
         # Salva no banco de dados se configurado (salva TODAS as ofertas coletadas)
         scrape_run_id = await self._save_to_database(offers)
 
         metrics = {
             "collected_count": len(offers),
-            "validated_count": validated_count,
             "filtered_count": len(filtered),
             "shown_count": len(show),
             "min_discount_pct": self.config.scrape.min_discount_pct,
             "max_scrolls": self.config.scrape.max_scrolls,
-            "seconds_total": round(t3 - t0, 2),
+            "seconds_total": round(t2 - t0, 2),
             "seconds_collect": round(t1 - t0, 2),
-            "seconds_validate": round(t2 - t2_start, 2),
-            "seconds_filter_save": round(t3 - t2, 2),
+            "seconds_filter_save": round(t2 - t1, 2),
             "scrape_run_id": scrape_run_id,
         }
         log(f"[scrape] Métricas: {metrics}")

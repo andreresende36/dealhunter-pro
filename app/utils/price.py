@@ -59,14 +59,28 @@ def parse_commission_pct(text: str) -> int | None:
     """Extrai porcentagem de comissão do texto como inteiro."""
     if not text:
         return None
-    m = re.search(r"(\d+(?:[.,]\d+)?)", text)
-    if not m:
-        return None
-    try:
-        value = float(m.group(1).replace(",", "."))
-        return int(round(value))
-    except ValueError:
-        return None
+
+    # Procura por padrões específicos de comissão:
+    # - "GANHOS 16%" ou "GANHOS EXTRA 20%"
+    # - "16%" após "GANHOS"
+    # - Qualquer número seguido de "%" (fallback)
+    patterns = [
+        r"GANHOS\s+(?:EXTRA\s+)?(\d+(?:[.,]\d+)?)\s*%",  # "GANHOS 16%" ou "GANHOS EXTRA 20%"
+        r"(\d+(?:[.,]\d+)?)\s*%",  # Qualquer número seguido de "%"
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            try:
+                value = float(m.group(1).replace(",", "."))
+                # Garante que é uma porcentagem válida (0-100)
+                if 0 <= value <= 100:
+                    return int(round(value))
+            except ValueError:
+                continue
+
+    return None
 
 
 def calc_discount(old_cents: int | None, price_cents: int) -> int | None:

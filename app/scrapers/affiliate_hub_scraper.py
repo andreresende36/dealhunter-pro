@@ -8,7 +8,7 @@ from typing import Optional, TypedDict
 
 from playwright.async_api import async_playwright  # type: ignore
 
-from config import AffiliateConfig, MLConfig
+from config import AffiliateConfig, DatabaseConfig, MLConfig
 from models import ScrapedOffer
 from scrapers.constants import (
     DEFAULT_ACCEPT_LANGUAGE,
@@ -32,8 +32,97 @@ from utils.url import (
 )
 from utils.logging import log
 
-
 DEBUG_DIR = pathlib.Path("debug")
+
+
+def _build_card_extraction_js(selectors: AffiliateHubSelectors) -> str:
+    """
+    Constrói o código JavaScript para extração de dados dos cards.
+
+    Os seletores são inseridos via f-strings para evitar problemas de serialização.
+    """
+    return f"""
+        (cards) => {{
+            const pick = (root, sel) => {{
+                if (!sel) return '';
+                const el = root.querySelector(sel);
+                return el ? (el.textContent || '').trim() : '';
+            }};
+            const pickAttr = (root, sel, attr) => {{
+                if (!sel) return '';
+                const el = root.querySelector(sel);
+                return el ? (el.getAttribute(attr) || '').trim() : '';
+            }};
+            // Tenta múltiplos seletores para price_cents se o primeiro falhar
+            const pickPriceCents = (root) => {{
+                const sel1 = '{selectors.price_cents}';
+                let cents = pick(root, sel1);
+                if (!cents) {{
+                    const altSelectors = [
+                        'span.andes-money-amount__cents',
+                        '.andes-money-amount__cents',
+                        '[class*="cents"]'
+                    ];
+                    for (const altSel of altSelectors) {{
+                        cents = pick(root, altSel);
+                        if (cents) break;
+                    }}
+                }}
+                return cents || '';
+            }};
+            // Tenta múltiplos seletores para commission se o primeiro falhar
+            const pickCommission = (root) => {{
+                const sel1 = '{selectors.commission}';
+                let commission = pick(root, sel1);
+                if (!commission) {{
+                    const altSelectors = [
+                        'span.stripe-commission__percentage',
+                        'div.stripe-commission__info span',
+                        '[class*="commission"]',
+                        '[class*="ganhos"]'
+                    ];
+                    for (const altSel of altSelectors) {{
+                        commission = pick(root, altSel);
+                        if (commission) break;
+                    }}
+                }}
+                return commission || '';
+            }};
+            // Extrai porcentagem de desconto do texto
+            const parseDiscountPct = (str) => {{
+                if (!str) return '';
+                const match = str.match(/(\\d{{1,3}})\\s*%+/);
+                if (!match) return '';
+                return match[1];
+            }};
+            
+            return cards.map(card => {{
+                const href = pickAttr(card, 'a[href]', 'href');
+                const title = pick(card, '{selectors.title}');
+                const image_url =
+                    pickAttr(card, '{selectors.picture}', 'src') ||
+                    pickAttr(card, '{selectors.picture}', 'data-src');
+                const price_fraction_str = pick(card, '{selectors.price_fraction}');
+                const price_cents_str = pickPriceCents(card);
+                const old_fraction_str = pick(card, '{selectors.old_fraction}');
+                const old_cents_str = pick(card, '{selectors.old_cents}');
+                const discount_text = pick(card, '{selectors.discount}');
+                const commission_text = pickCommission(card);
+                const card_text = (card.innerText || '').trim();
+                
+                return {{
+                    href, title, image_url,
+                    price_fraction: price_fraction_str || '',
+                    price_cents: price_cents_str || '',
+                    old_fraction: old_fraction_str || '',
+                    old_cents: old_cents_str || '',
+                    discount_pct: parseDiscountPct(discount_text),
+                    commission_text,
+                    card_text
+                }};
+            }});
+        }}
+        """
 
 
 class AffiliateCardRow(TypedDict):
@@ -44,6 +133,9 @@ class AffiliateCardRow(TypedDict):
     image_url: str
     price_fraction: str
     price_cents: str
+    old_fraction: str
+    old_cents: str
+    discount_pct: str
     commission_text: str
     card_text: str
 
@@ -57,6 +149,9 @@ class AffiliateHubSelectors:
     picture: str
     price_fraction: str
     price_cents: str
+    old_fraction: str
+    old_cents: str
+    discount: str
     commission: str
 
 
@@ -72,53 +167,320 @@ async def _try_accept_cookies(page) -> None:
             pass
 
 
+async def _check_for_error_messages(page) -> bool:
+    """Verifica se há mensagens de erro na página."""
+    error_selectors = [
+        ".ui-snackbar--error",
+        '[class*="error"]',
+        '[class*="erro"]',
+    ]
+
+    # Verifica seletores CSS
+    for selector in error_selectors:
+        try:
+            error_elem = page.locator(selector).first
+            if await error_elem.count(timeout=500) > 0:
+                error_text = await error_elem.text_content()
+                if error_text and len(error_text.strip()) > 0:
+                    log(
+                        f"[affiliate_hub] Mensagem de erro detectada: {error_text[:100]}"
+                    )
+                    return True
+        except Exception:
+            continue
+
+    # Verifica textos de erro comuns usando get_by_text
+    error_texts = [
+        "ocorreu um erro",
+        "não foi possível",
+        "tente novamente",
+        "erro ao carregar",
+        "sem resultados",
+    ]
+
+    for error_text in error_texts:
+        try:
+            error_elem = page.get_by_text(error_text, exact=False)
+            if await error_elem.count(timeout=500) > 0:
+                visible_text = await error_elem.first.text_content()
+                if visible_text:
+                    log(
+                        f"[affiliate_hub] Mensagem de erro detectada: {visible_text[:100]}"
+                    )
+                    return True
+        except Exception:
+            continue
+
+    return False
+
+
+async def _extract_card_data(
+    page,
+    card_selector: str,
+    selectors: AffiliateHubSelectors,
+) -> list[AffiliateCardRow]:
+    """Extrai dados de todos os cards visíveis no momento."""
+    try:
+        js_code = _build_card_extraction_js(selectors)
+        items = await page.eval_on_selector_all(card_selector, js_code)
+        return items
+    except Exception as e:
+        log(f"[affiliate_hub] Erro ao extrair dados dos cards: {e}")
+        return []
+
+
+def _collect_new_items(
+    items: list[AffiliateCardRow],
+    collected_items: list[AffiliateCardRow],
+    seen_hrefs: set[str],
+) -> int:
+    """
+    Coleta novos items de uma lista, evitando duplicatas.
+
+    Otimizado para processar apenas items com href válido e normalizado.
+
+    Returns:
+        Número de novos items coletados.
+    """
+    new_count = 0
+    for item in items:
+        href = item.get("href", "").strip()
+        if not href:
+            continue
+
+        normalized_href = normalize_ml_url(href)
+        if normalized_href and normalized_href not in seen_hrefs:
+            seen_hrefs.add(normalized_href)
+            collected_items.append(item)
+            new_count += 1
+    return new_count
+
+
+async def _perform_incremental_scroll(
+    page,
+    card_selector: str,
+    selectors: AffiliateHubSelectors,
+    scroll_delay_ms: int,
+    collected_items: list[AffiliateCardRow],
+    seen_hrefs: set[str],
+) -> int:
+    """
+    Realiza scroll incremental coletando dados em cada incremento.
+
+    Returns:
+        Número de novos items coletados durante o scroll.
+    """
+    scroll_increment = SCROLL_PIXELS // 4
+    total_new = 0
+
+    for _ in range(4):
+        await page.mouse.wheel(0, scroll_increment)
+        await page.wait_for_timeout(scroll_delay_ms // 4)
+
+        mid_items = await _extract_card_data(page, card_selector, selectors)
+        total_new += _collect_new_items(mid_items, collected_items, seen_hrefs)
+
+    return total_new
+
+
+async def _recover_cards_after_dom_drop(
+    page,
+    card_selector: str,
+    selectors: AffiliateHubSelectors,
+    scroll_delay_ms: int,
+    collected_items: list[AffiliateCardRow],
+    seen_hrefs: set[str],
+    previous_count: int,
+    current_count: int,
+) -> int:
+    """
+    Tenta recuperar cards após queda significativa no DOM.
+
+    Returns:
+        Número de novos items coletados durante a recuperação.
+    """
+    # Evita divisão por zero
+    if previous_count == 0:
+        return 0
+
+    drop_percentage = ((previous_count - current_count) / previous_count) * 100
+    if drop_percentage <= 30:
+        return 0
+
+    log(
+        f"[affiliate_hub] Aviso: DOM caiu de {previous_count} para {current_count} cards "
+        f"({drop_percentage:.0f}% de queda). Fazendo scroll adicional e coletas para recuperar cards..."
+    )
+
+    await page.mouse.wheel(0, SCROLL_PIXELS // 2)
+    await page.wait_for_timeout(scroll_delay_ms)
+
+    total_new = 0
+    for retry_attempt in range(3):
+        if retry_attempt > 0:
+            await page.wait_for_timeout(scroll_delay_ms * retry_attempt)
+
+        retry_items = await _extract_card_data(page, card_selector, selectors)
+        retry_new = _collect_new_items(retry_items, collected_items, seen_hrefs)
+
+        if retry_new > 0:
+            log(
+                f"[affiliate_hub] Coleta adicional (tentativa {retry_attempt + 1}): "
+                f"{retry_new} novos cards coletados"
+            )
+            total_new += retry_new
+
+    return total_new
+
+
+async def _collect_final_items(
+    page,
+    card_selector: str,
+    selectors: AffiliateHubSelectors,
+    scroll_delay_s: float,
+    collected_items: list[AffiliateCardRow],
+    seen_hrefs: set[str],
+) -> None:
+    """Coleta dados finais após todos os scrolls."""
+    final_wait = max(2000, int(scroll_delay_s * 1000 * 3))
+    log(f"[affiliate_hub] Aguardando {final_wait}ms após scrolls finais...")
+    await page.wait_for_timeout(final_wait)
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+
+    log("[affiliate_hub] Coletando dados finais dos cards...")
+    final_items = await _extract_card_data(page, card_selector, selectors)
+    final_new = _collect_new_items(final_items, collected_items, seen_hrefs)
+
+    if final_new > 0:
+        log(
+            f"[affiliate_hub] {final_new} novos cards coletados na coleta final "
+            f"(total: {len(collected_items)})"
+        )
+
+    if await _check_for_error_messages(page):
+        log("[affiliate_hub] Aviso: Mensagem de erro detectada após scrolls")
+
+    await page.wait_for_timeout(1500)
+
+
 async def _scroll_until_no_growth(
     page,
     card_selector: str,
     max_scrolls: int,
     scroll_delay_s: float,
+    selectors: AffiliateHubSelectors,
+    collected_items: list[AffiliateCardRow],
+    seen_hrefs: set[str],
 ) -> None:
-    """Rola a página até não haver mais crescimento no número de cards."""
-    prev = 0
+    """
+    Rola a página até não haver mais crescimento no número de cards.
+    Coleta dados dos cards durante os scrolls para evitar perda de dados.
+    """
+    previous_dom_count = 0
     no_growth_count = 0
+    scroll_delay_ms = max(500, int(scroll_delay_s * 1000))
 
-    for _ in range(max_scrolls):
-        await page.mouse.wheel(0, SCROLL_PIXELS)
+    # Coleta dados iniciais
+    log("[affiliate_hub] Coletando dados iniciais dos cards...")
+    initial_items = await _extract_card_data(page, card_selector, selectors)
+    initial_new = _collect_new_items(initial_items, collected_items, seen_hrefs)
+    log(
+        f"[affiliate_hub] {len(initial_items)} cards iniciais coletados "
+        f"({initial_new} novos, total acumulado: {len(collected_items)})"
+    )
 
-        min_delay = max(100, int(scroll_delay_s * 1000 * 0.5))
-        await page.wait_for_timeout(min_delay)
+    for scroll_num in range(max_scrolls):
+        # Coleta antes do scroll
+        pre_scroll_items = await _extract_card_data(page, card_selector, selectors)
+        pre_scroll_new = _collect_new_items(
+            pre_scroll_items, collected_items, seen_hrefs
+        )
+
+        # Scroll incremental com coleta durante
+        mid_scroll_new = await _perform_incremental_scroll(
+            page, card_selector, selectors, scroll_delay_ms, collected_items, seen_hrefs
+        )
+
+        await page.wait_for_timeout(scroll_delay_ms)
+
+        if await _check_for_error_messages(page):
+            log("[affiliate_hub] Erro detectado durante scroll. Parando...")
+            break
 
         try:
-            await page.wait_for_load_state("networkidle", timeout=min_delay * 2)
+            await page.wait_for_load_state("networkidle", timeout=scroll_delay_ms * 2)
         except Exception:
             pass
 
-        cur = await page.locator(card_selector).count()
-        if cur <= prev:
+        # Coleta após o scroll
+        post_scroll_items = await _extract_card_data(page, card_selector, selectors)
+        post_scroll_new = _collect_new_items(
+            post_scroll_items, collected_items, seen_hrefs
+        )
+
+        current_dom_count = await page.locator(card_selector).count()
+        total_new_this_scroll = pre_scroll_new + mid_scroll_new + post_scroll_new
+
+        # Recupera cards após queda no DOM
+        recovery_new = await _recover_cards_after_dom_drop(
+            page,
+            card_selector,
+            selectors,
+            scroll_delay_ms,
+            collected_items,
+            seen_hrefs,
+            previous_dom_count,
+            current_dom_count,
+        )
+        total_new_this_scroll += recovery_new
+
+        log(
+            f"[affiliate_hub] Scroll {scroll_num + 1}/{max_scrolls}: {current_dom_count} cards no DOM, "
+            f"{total_new_this_scroll} novos coletados ({pre_scroll_new} antes + {mid_scroll_new} durante + "
+            f"{post_scroll_new} depois, total acumulado: {len(collected_items)})"
+        )
+
+        # Verifica crescimento
+        dom_grew = current_dom_count > previous_dom_count
+        collected_new = total_new_this_scroll > 0
+
+        if not dom_grew and not collected_new:
             no_growth_count += 1
-            if no_growth_count >= 2:
+            if no_growth_count >= 3:
+                log(
+                    "[affiliate_hub] Nenhum novo card detectado no DOM nem coletado após 3 scrolls. Parando..."
+                )
                 break
         else:
             no_growth_count = 0
-        prev = cur
+
+        previous_dom_count = current_dom_count
+
+    # Coleta final
+    await _collect_final_items(
+        page, card_selector, selectors, scroll_delay_s, collected_items, seen_hrefs
+    )
 
 
 def _row_text(row: AffiliateCardRow, key: str) -> str:
     """Extrai texto de uma chave do row."""
     value = row.get(key) or ""
-    return value.strip()
+    return value.strip() if isinstance(value, str) else str(value)
 
 
 async def _find_card_selector(page, default_selector: str) -> str | None:
     """Encontra o seletor de card que funciona na página."""
-    print("DEFAUT-------------------------------------", default_selector)
     possible_selectors = [
         default_selector,
-        # ".andes-card",
-        # "[class*='andes-card']",
-        # "[class*='poly-card']",
-        # "article",
-        # "[data-testid*='card']",
+        ".andes-card",
+        "[class*='andes-card']",
+        "[class*='poly-card']",
+        "article",
+        "[data-testid*='card']",
     ]
 
     for selector in possible_selectors:
@@ -190,201 +552,51 @@ async def _collect_affiliate_hub_items(
         # Retorna lista vazia em vez de falhar
         return ([], None)
 
-    await _scroll_until_no_growth(page, card_selector, max_scrolls, scroll_delay_s)
+    # Realiza todos os scrolls coletando dados incrementalmente durante o processo
+    # Isso evita perder cards que são removidos do DOM durante lazy loading
+    log("[affiliate_hub] Iniciando scrolls e coleta incremental de dados dos cards...")
+    collected_items: list[AffiliateCardRow] = []
+    seen_hrefs: set[str] = set()
 
-    items = await page.eval_on_selector_all(
+    await _scroll_until_no_growth(
+        page,
         card_selector,
-        f"""
-        (cards) => {{
-            const pick = (root, sel) => {{
-                const el = root.querySelector(sel);
-                return el ? (el.textContent || '').trim() : '';
-            }};
-            const pickAttr = (root, sel, attr) => {{
-                const el = root.querySelector(sel);
-                return el ? (el.getAttribute(attr) || '').trim() : '';
-            }};
-            return cards.map(card => {{
-                const href = pickAttr(card, 'a[href]', 'href');
-                const title = pick(card, '{selectors.title}');
-                const image_url =
-                    pickAttr(card, '{selectors.picture}', 'src') ||
-                    pickAttr(card, '{selectors.picture}', 'data-src');
-                const price_fraction = pick(card, '{selectors.price_fraction}');
-                const price_cents = pick(card, '{selectors.price_cents}');
-                const commission_text = pick(card, '{selectors.commission}');
-                const card_text = (card.innerText || '').trim();
-                return {{
-                    href, title, image_url,
-                    price_fraction, price_cents,
-                    commission_text,
-                    card_text
-                }};
-            }});
-        }}
-        """,
+        max_scrolls,
+        scroll_delay_s,
+        selectors,
+        collected_items,
+        seen_hrefs,
     )
 
-    return (items, card_selector)
+    log(
+        f"[affiliate_hub] Scrolls concluídos. Total de {len(collected_items)} cards coletados."
+    )
 
+    # Verificação final de segurança: remove duplicatas usando URLs normalizadas
+    # (A coleta já evita duplicatas, mas esta verificação garante consistência)
+    final_unique_items: list[AffiliateCardRow] = []
+    final_seen_hrefs: set[str] = set()
+    duplicates_removed = 0
 
-async def _read_input_or_textarea_value(locator) -> Optional[str]:
-    """Lê o valor de um input ou textarea."""
-    try:
-        value = await locator.input_value()
-        if value:
-            return value.strip()
-    except Exception:
-        pass
+    for item in collected_items:
+        href = item.get("href", "").strip()
+        if not href:
+            continue
 
-    try:
-        text = await locator.text_content()
-        if text:
-            return text.strip()
-    except Exception:
-        pass
+        normalized_href = normalize_ml_url(href)
+        if normalized_href and normalized_href not in final_seen_hrefs:
+            final_seen_hrefs.add(normalized_href)
+            final_unique_items.append(item)
+        else:
+            duplicates_removed += 1
 
-    try:
-        value = await locator.get_attribute("value")
-        if value:
-            return value.strip()
-    except Exception:
-        pass
+    if duplicates_removed > 0:
+        log(
+            f"[affiliate_hub] Aviso: {duplicates_removed} duplicatas removidas na verificação final. "
+            f"Total único: {len(final_unique_items)} cards."
+        )
 
-    return None
-
-
-async def _extract_affiliate_data_from_card(
-    page,
-    card_locator,
-    affiliate_link_selector: str,
-    affiliate_id_selector: str,
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Extrai link de afiliado e código do produto clicando nos botões de compartilhar.
-
-    Args:
-        page: Página do Playwright
-        card_locator: Locator do card do produto
-        affiliate_link_selector: ID ou seletor do botão/elemento para link (copy_link)
-        affiliate_id_selector: ID ou seletor do botão/elemento para código (copy_id)
-
-    Returns:
-        Tupla (affiliate_link, affiliation_id)
-    """
-    try:
-        # Encontra o botão "Compartilhar" dentro do card
-        share_button = card_locator.locator(
-            'button.share-button, [class*="share"], button:has-text("Compartilhar")'
-        ).first
-
-        if await share_button.count() == 0:
-            return (None, None)
-
-        # Clica no botão Compartilhar
-        await share_button.click(timeout=5000)
-        await page.wait_for_timeout(800)  # Aguarda modal/menu abrir
-
-        affiliate_link = None
-        affiliation_id = None
-
-        # Tenta extrair o link de afiliado
-        # Primeiro tenta ler diretamente do input/textarea
-        try:
-            # Tenta vários seletores possíveis
-            link_selectors = [
-                f"#{affiliate_link_selector}",
-                f'[id="{affiliate_link_selector}"]',
-                f'[data-testid="{affiliate_link_selector}"]',
-                affiliate_link_selector,
-            ]
-
-            for selector in link_selectors:
-                try:
-                    link_elem = page.locator(selector).first
-                    if await link_elem.count() > 0:
-                        # Tenta ler como input/textarea primeiro
-                        value = await _read_input_or_textarea_value(link_elem)
-                        if value:
-                            affiliate_link = value
-                            break
-
-                        # Se não funcionou, tenta clicar no botão e ler do clipboard
-                        try:
-                            await link_elem.click(timeout=2000)
-                            await page.wait_for_timeout(500)
-                            # Tenta ler do clipboard (pode não funcionar em todos os contextos)
-                            try:
-                                clipboard_text = await page.evaluate(
-                                    "async () => await navigator.clipboard.readText()"
-                                )
-                                if clipboard_text:
-                                    affiliate_link = clipboard_text.strip()
-                                    break
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                except Exception:
-                    continue
-        except Exception as e:
-            log(f"[affiliate_hub] Erro ao extrair link: {e}")
-
-        # Tenta extrair o código do produto
-        try:
-            id_selectors = [
-                f"#{affiliate_id_selector}",
-                f'[id="{affiliate_id_selector}"]',
-                f'[data-testid="{affiliate_id_selector}"]',
-                affiliate_id_selector,
-            ]
-
-            for selector in id_selectors:
-                try:
-                    id_elem = page.locator(selector).first
-                    if await id_elem.count() > 0:
-                        # Tenta ler como input/textarea primeiro
-                        value = await _read_input_or_textarea_value(id_elem)
-                        if value:
-                            affiliation_id = value
-                            break
-
-                        # Se não funcionou, tenta clicar no botão e ler do clipboard
-                        try:
-                            await id_elem.click(timeout=2000)
-                            await page.wait_for_timeout(500)
-                            # Tenta ler do clipboard
-                            try:
-                                clipboard_text = await page.evaluate(
-                                    "async () => await navigator.clipboard.readText()"
-                                )
-                                if clipboard_text:
-                                    affiliation_id = clipboard_text.strip()
-                                    break
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                except Exception:
-                    continue
-        except Exception as e:
-            log(f"[affiliate_hub] Erro ao extrair código: {e}")
-
-        # Fecha o modal/menu se necessário
-        try:
-            close_btn = page.locator(
-                'button[aria-label="Fechar"], button:has-text("Fechar"), [class*="close"], button[aria-label="Close"]'
-            ).first
-            if await close_btn.count() > 0:
-                await close_btn.click(timeout=1000)
-                await page.wait_for_timeout(200)
-        except Exception:
-            pass
-
-        return (affiliate_link, affiliation_id)
-    except Exception as e:
-        log(f"[affiliate_hub] Erro ao extrair dados de afiliado: {e}")
-        return (None, None)
+    return (final_unique_items, card_selector)
 
 
 def _build_offer_from_affiliate_row(
@@ -411,16 +623,24 @@ def _build_offer_from_affiliate_row(
 
     image_url = _row_text(row, "image_url") or None
 
+    # Calcula o preço total em centavos usando money_parts_to_cents (igual ao ml_scraper.py)
     price_cents = money_parts_to_cents(
         _row_text(row, "price_fraction"),
         _row_text(row, "price_cents") or None,
     )
     if price_cents is None:
+        # Se não temos fraction/cents, tenta extrair do card_text como fallback
         price_cents = price_to_cents(_row_text(row, "card_text"))
     if price_cents is None:
         return None
 
+    # Tenta extrair comissão do campo commission_text primeiro
     commission_pct = parse_commission_pct(_row_text(row, "commission_text"))
+    # Se não encontrou, tenta extrair do card_text (ex: "GANHOS 16%")
+    if commission_pct is None:
+        card_text = _row_text(row, "card_text")
+        # Procura por padrões como "GANHOS 16%", "16%", "GANHOS EXTRA 20%", etc.
+        commission_pct = parse_commission_pct(card_text)
 
     if url_type == "produto":
         canonical_url = f"https://produto.{ML_DOMAIN}/{ext_id}"
@@ -449,8 +669,8 @@ async def scrape_affiliate_hub(
     affiliate_config: AffiliateConfig,
     max_scrolls: int,
     scroll_delay_s: float,
-    concurrency: int = 3,
     debug: bool = False,
+    database_config: DatabaseConfig | None = None,
 ) -> list[ScrapedOffer]:
     """
     Raspa produtos da Central de Afiliados do Mercado Livre.
@@ -460,18 +680,20 @@ async def scrape_affiliate_hub(
         affiliate_config: Configuração de afiliados
         max_scrolls: Número máximo de scrolls
         scroll_delay_s: Delay entre scrolls em segundos
-        concurrency: Número de requisições paralelas para extrair dados de afiliado
-        debug: Se True, salva arquivos de debug (HTML)
+        debug: Se True, salva arquivos de debug (HTML e JSON)
+        database_config: DEPRECATED - O salvamento no banco é feito em scrape_service.py.
+                        Este parâmetro será removido em versões futuras.
 
     Returns:
         Lista de ofertas coletadas
     """
     offers: list[ScrapedOffer] = []
-    seen_ids: set[str] = set()
 
     debug_dir = DEBUG_DIR
     if debug:
-        debug_dir.mkdir(parents=True, exist_ok=True)
+        from debug.debug_utils import ensure_debug_dir
+
+        ensure_debug_dir(debug_dir)
 
     selectors = AffiliateHubSelectors(
         card=ml_config.card_selector,
@@ -479,11 +701,20 @@ async def scrape_affiliate_hub(
         picture=ml_config.picture_selector,
         price_fraction=ml_config.price_fraction_selector,
         price_cents=ml_config.price_cents_selector,
+        old_fraction=ml_config.old_fraction_selector,
+        old_cents=ml_config.old_cents_selector,
+        discount=ml_config.discount_selector,
         commission=affiliate_config.commission_selector,
     )
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # Abre navegador em modo visível quando debug está ativo
+        if debug:
+            from debug.debug_utils import create_debug_browser
+
+            browser = await create_debug_browser(p)
+        else:
+            browser = await p.chromium.launch(headless=True)
         context_kwargs = {
             "locale": "pt-BR",
             "user_agent": DEFAULT_USER_AGENT,
@@ -525,54 +756,26 @@ async def scrape_affiliate_hub(
 
         log(f"[affiliate_hub] {len(items)} produtos coletados")
 
-        # HTML de debug após coletar os cards
+        # Salva dados de debug se solicitado
         if debug:
-            # Salva o HTML da página
-            html_content = await page.content()
-            html_path = debug_dir / "affiliate_hub_after_scroll.html"
-            html_path.write_text(html_content, encoding="utf-8")
-            log(f"[affiliate_hub] HTML após scroll salvo em {html_path}")
+            from debug.debug_utils import save_affiliate_hub_debug_data
 
-        # Extrai dados de afiliado para cada produto
-        # Processa sequencialmente na mesma página para evitar conflitos com modais
-        log(f"[affiliate_hub] Extraindo dados de afiliado de {len(items)} produtos...")
+            await save_affiliate_hub_debug_data(items, page, debug_dir)  # type: ignore[arg-type]
 
-        for idx, row in enumerate(items):
-            try:
-                # Localiza o card específico usando nth()
-                card_locator = page.locator(card_selector_used).nth(idx)
+        # Processa items e cria ofertas
+        seen_ids: set[str] = set()
+        for row in items:
+            # Cria oferta sem dados de afiliado (serão coletados posteriormente de forma assíncrona)
+            offer = _build_offer_from_affiliate_row(row, seen_ids, None, None)
+            if offer:
+                offers.append(offer)
 
-                # Verifica se o card existe
-                if await card_locator.count() == 0:
-                    log(
-                        f"[affiliate_hub] Card {idx} não encontrado, criando oferta sem dados de afiliado"
-                    )
-                    offer = _build_offer_from_affiliate_row(row, seen_ids, None, None)
-                    if offer:
-                        offers.append(offer)
-                    continue
-
-                # Extrai dados de afiliado
-                affiliate_link, affiliation_id = (
-                    await _extract_affiliate_data_from_card(
-                        page,
-                        card_locator,
-                        affiliate_config.affiliate_link_selector,
-                        affiliate_config.affiliation_id_selector,
-                    )
-                )
-
-                offer = _build_offer_from_affiliate_row(
-                    row, seen_ids, affiliate_link, affiliation_id
-                )
-                if offer:
-                    offers.append(offer)
-            except Exception as e:
-                log(f"[affiliate_hub] Erro ao processar produto {idx}: {e}")
-                # Tenta criar oferta sem dados de afiliado
-                offer = _build_offer_from_affiliate_row(row, seen_ids, None, None)
-                if offer:
-                    offers.append(offer)
+        # Aviso sobre database_config deprecado
+        if database_config is not None:
+            log(
+                "[affiliate_hub] AVISO: O parâmetro database_config está deprecado. "
+                "O salvamento no banco é feito automaticamente em scrape_service.py."
+            )
 
         await context.close()
         await browser.close()
