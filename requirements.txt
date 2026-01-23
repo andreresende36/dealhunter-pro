@@ -1,0 +1,13 @@
+# Dependências de produção
+playwright==1.49.1
+python-dotenv==1.0.1
+supabase>=2.0.0
+rq>=1.15.0
+redis>=5.0.0
+prometheus-client>=0.19.0
+
+# Monitoramento RQ (opcional - usado pelo rq-exporter via Docker)
+# rq-exporter é executado como container Docker, não precisa estar aqui
+# Mas mantemos prometheus-client para métricas customizadas na aplicação
+
+# Para dependências de desenvolvimento e testes, veja requirements-dev.txt

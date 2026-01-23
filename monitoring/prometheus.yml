@@ -1,0 +1,54 @@
+# Configuração do Prometheus para DealHunter Pro
+# Retenção: 30 dias
+# Scrape interval: 15 segundos
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'dealhunter-monitor'
+    environment: 'production'
+
+# Configuração de alertas
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+      # Para usar Alertmanager, descomente e configure:
+      # - targets: ['alertmanager:9093']
+
+# Regras de alertas
+rule_files:
+  - "/etc/prometheus/alerts.yml"
+
+# Configuração de scraping
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+
+  # RQ Exporter - Métricas do Redis Queue
+  - job_name: 'rq-exporter'
+    static_configs:
+      - targets: ['rq-exporter:9726']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    scrape_timeout: 10s
+
+  # Métricas da aplicação (quando implementadas)
+  - job_name: 'dealhunter-app'
+    static_configs:
+      - targets: ['app:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Métricas dos workers (quando implementadas)
+  - job_name: 'dealhunter-workers'
+    static_configs:
+      - targets: ['worker:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s

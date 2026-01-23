@@ -1,0 +1,9 @@
+# Dependências de desenvolvimento e testes
+# Instale com: pip install -r requirements-dev.txt
+
+# Testes
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Dashboard RQ (opcional, apenas para desenvolvimento)
+rq-dashboard>=0.6.1
